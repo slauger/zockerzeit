@@ -264,9 +264,12 @@ func funcs(loc *time.Location) template.FuncMap {
 			}
 			return formatDuration(st.Remaining)
 		},
-		"windows": rules.FormatWindows,
-		"cells":   energyCells,
-		"minutes": func(m int) time.Duration { return time.Duration(m) * time.Minute },
+		"windows":     rules.FormatWindows,
+		"cells":       energyCells,
+		"slots":       slots,
+		"deviceTypes": func() []string { return store.DeviceTypes },
+		"typeLabel":   func(t string) string { return engine.TypeLabels[t] },
+		"minutes":     func(m int) time.Duration { return time.Duration(m) * time.Minute },
 		"initial": func(name string) string {
 			for _, r := range name {
 				return strings.ToUpper(string(r))
@@ -300,6 +303,25 @@ var weekdayLong = map[time.Weekday]string{
 var monthLong = []string{
 	"Januar", "Februar", "März", "April", "Mai", "Juni",
 	"Juli", "August", "September", "Oktober", "November", "Dezember",
+}
+
+// slot is a time window positioned on a 24 hour track, in percent.
+type slot struct {
+	Left  float64
+	Width float64
+	Label string
+}
+
+func slots(ws []rules.Window) []slot {
+	out := make([]slot, 0, len(ws))
+	for _, w := range ws {
+		out = append(out, slot{
+			Left:  float64(w.Start) / 1440 * 100,
+			Width: float64(w.End-w.Start) / 1440 * 100,
+			Label: rules.FormatClock(w.Start) + "-" + rules.FormatClock(w.End),
+		})
+	}
+	return out
 }
 
 // cellMinutes is the play time one segment of the energy bar stands for.

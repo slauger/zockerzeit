@@ -1,21 +1,25 @@
 {{define "content"}}
 {{with .Data.View}}
-<section class="kid {{if .Status.Allowed}}is-allowed{{else}}is-paused{{end}}">
+{{$v := .}}
+<section class="kid {{if .Console.Allowed}}is-allowed{{else}}is-paused{{end}}">
   <img class="kid-logo" src="/static/favicon.svg" alt="" width="64" height="64">
   <h1>Hallo {{.Profile.Name}}!</h1>
-  {{if .Status.Allowed}}
+  {{if .Console.Allowed}}
     <p class="kid-label">Du kannst noch</p>
-    <p class="kid-big">{{remaining .Status}}</p>
-    <p class="kid-label">spielen.</p>
+    <p class="kid-big">{{remaining .Console}}</p>
+    <p class="kid-label">zocken.</p>
   {{else}}
     <p class="kid-big">Pause</p>
-    <p class="kid-label">{{.Status.Reason}}</p>
+    <p class="kid-label">{{.Console.Reason}}</p>
   {{end}}
-  {{with cells .Status}}
+  {{with cells .Console}}
   <div class="energy kid-energy" aria-hidden="true">{{range .}}<span class="cell {{.}}"></span>{{end}}</div>
   {{end}}
-  {{if .Status.LimitToday}}<p class="kid-small">Heute {{dur .Status.UsedToday}} von {{.Status.LimitToday}} Min gespielt</p>{{end}}
-  {{if .Status.LimitWeek}}<p class="kid-small">Diese Woche {{dur .Status.UsedWeek}} von {{dur (minutes .Status.LimitWeek)}}</p>{{end}}
+  {{if .Console.LimitToday}}<p class="kid-small">Heute {{dur .Console.UsedToday}} von {{.Console.LimitToday}} Min gezockt</p>{{end}}
+  {{if .Console.LimitWeek}}<p class="kid-small">Diese Woche {{dur .Console.UsedWeek}} von {{dur (minutes .Console.LimitWeek)}}</p>{{end}}
+  {{if $v.HasType "phone"}}
+  <p class="kid-phone {{if .Phone.Allowed}}is-allowed{{else}}is-paused{{end}}">Handy: {{if .Phone.Allowed}}{{if .Phone.LimitToday}}noch {{remaining .Phone}}{{else}}frei{{end}}{{else}}{{.Phone.Reason}}{{end}}</p>
+  {{end}}
 </section>
 {{end}}
 {{end}}

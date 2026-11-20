@@ -16,10 +16,10 @@
     <label>Profil
       <select name="profile">{{range $.Data.Profiles}}<option value="{{.ID}}" {{if eq .ID $d.ProfileID}}selected{{end}}>{{.Name}}</option>{{end}}</select>
     </label>
-    <label>Zählt als Spielzeit
+    <label>Typ
       <select name="mode">
-        <option value="online" {{if eq .Mode "online"}}selected{{end}}>wenn verbunden (Konsole)</option>
-        <option value="traffic" {{if eq .Mode "traffic"}}selected{{end}}>bei Datenverkehr (Handy)</option>
+        <option value="online" {{if eq .Mode "online"}}selected{{end}}>Konsole</option>
+        <option value="traffic" {{if eq .Mode "traffic"}}selected{{end}}>Handy</option>
       </select>
     </label>
     <label class="check"><input type="checkbox" name="shared" {{if .Shared}}checked{{end}}> gemeinsam genutzt</label>
@@ -41,10 +41,10 @@
     <label>Profil
       <select name="profile">{{range $.Data.Profiles}}<option value="{{.ID}}">{{.Name}}</option>{{end}}</select>
     </label>
-    <label>Zählt als Spielzeit
+    <label>Typ
       <select name="mode">
-        <option value="online">wenn verbunden (Konsole)</option>
-        <option value="traffic">bei Datenverkehr (Handy)</option>
+        <option value="online">Konsole</option>
+        <option value="traffic">Handy</option>
       </select>
     </label>
     <label class="check"><input type="checkbox" name="shared"> gemeinsam genutzt</label>
@@ -64,10 +64,10 @@
     <label>Profil
       <select name="profile">{{range .Profiles}}<option value="{{.ID}}">{{.Name}}</option>{{end}}</select>
     </label>
-    <label>Zählt als Spielzeit
+    <label>Typ
       <select name="mode">
-        <option value="online">wenn verbunden (Konsole)</option>
-        <option value="traffic">bei Datenverkehr (Handy)</option>
+        <option value="online">Konsole</option>
+        <option value="traffic">Handy</option>
       </select>
     </label>
     <label class="check"><input type="checkbox" name="shared"> gemeinsam genutzt</label>

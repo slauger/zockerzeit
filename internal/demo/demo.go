@@ -98,9 +98,21 @@ func Seed(st *store.Store, now time.Time) error {
 		time.Monday: weekday, time.Tuesday: weekday, time.Wednesday: weekday, time.Thursday: weekday,
 		time.Friday: weekday, time.Saturday: weekend, time.Sunday: weekend,
 	}
+	daytime := rules.Schedule{}
+	for _, d := range rules.Weekdays {
+		daytime[d] = []rules.Window{{Start: 7 * 60, End: 20*60 + 30}}
+	}
 	for _, p := range []store.Profile{
-		{ID: "max", Name: "Max", DailyMinutes: 90, WeeklyMinutes: 480, Schedule: sched},
-		{ID: "lea", Name: "Lea", DailyMinutes: 45, WeeklyMinutes: 240, Schedule: sched},
+		{
+			ID: "max", Name: "Max",
+			Console: store.RuleSet{DailyMinutes: 90, WeeklyMinutes: 480, Schedule: sched},
+			Phone:   store.RuleSet{DailyMinutes: 60, Schedule: daytime},
+		},
+		{
+			ID: "lea", Name: "Lea",
+			Console: store.RuleSet{DailyMinutes: 45, WeeklyMinutes: 240, Schedule: sched},
+			Phone:   store.RuleSet{Schedule: daytime},
+		},
 	} {
 		if err := st.SaveProfile(p); err != nil {
 			return err
@@ -136,7 +148,7 @@ func Seed(st *store.Store, now time.Time) error {
 				for m := range length {
 					ts := day.Add(time.Duration(w.Start+offset+m) * time.Minute)
 					samples = append(samples, store.Sample{
-						TS: ts, MAC: d.MAC, ProfileID: d.ProfileID, Seconds: 60, Active: true,
+						TS: ts, MAC: d.MAC, ProfileID: d.ProfileID, Type: d.Type(), Seconds: 60, Active: true,
 						Bytes: rng.Int64N(2_000_000), APName: ap, ESSID: "Kids",
 					})
 				}

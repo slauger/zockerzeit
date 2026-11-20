@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"path/filepath"
 	"testing"
@@ -47,8 +48,9 @@ func TestOpenFileAndReopen(t *testing.T) {
 func TestProfilesAndDevices(t *testing.T) {
 	s := newStore(t)
 	p := Profile{
-		ID: "max", Name: "Max", DailyMinutes: 90, WeeklyMinutes: 480,
-		Schedule: rules.Schedule{time.Monday: {{Start: 900, End: 1080}}},
+		ID: "max", Name: "Max",
+		Console: RuleSet{DailyMinutes: 90, WeeklyMinutes: 480, Schedule: rules.Schedule{time.Monday: {{Start: 900, End: 1080}}}},
+		Phone:   RuleSet{DailyMinutes: 30, Schedule: rules.Schedule{time.Sunday: {{Start: 420, End: 1230}}}},
 	}
 	if err := s.SaveProfile(p); err != nil {
 		t.Fatal(err)
@@ -56,7 +58,7 @@ func TestProfilesAndDevices(t *testing.T) {
 	if err := s.SaveProfile(Profile{ID: "lea", Name: "Lea"}); err != nil {
 		t.Fatal(err)
 	}
-	p.DailyMinutes = 60
+	p.Console.DailyMinutes = 60
 	if err := s.SaveProfile(p); err != nil {
 		t.Fatal(err)
 	}
@@ -64,11 +66,11 @@ func TestProfilesAndDevices(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.DailyMinutes != 60 || len(got.Schedule[time.Monday]) != 1 || got.Schedule[time.Monday][0].End != 1080 {
+	if got.Console.DailyMinutes != 60 || len(got.Console.Schedule[time.Monday]) != 1 || got.Console.Schedule[time.Monday][0].End != 1080 {
 		t.Fatalf("unexpected profile: %+v", got)
 	}
-	if got.Limits().DailyMinutes != 60 {
-		t.Fatal("Limits() mismatch")
+	if got.Rules(TypeConsole).Limits().DailyMinutes != 60 || got.Rules(TypePhone).DailyMinutes != 30 || len(got.Phone.Schedule[time.Sunday]) != 1 {
+		t.Fatalf("rules mismatch: %+v", got)
 	}
 	all, _ := s.Profiles()
 	if len(all) != 2 || all[0].ID != "lea" {
@@ -85,7 +87,8 @@ func TestProfilesAndDevices(t *testing.T) {
 		t.Fatal(err)
 	}
 	devs, _ := s.Devices()
-	if len(devs) != 2 || devs[1].Mode != ModeOnline || !devs[1].Shared || devs[0].Mode != ModeTraffic {
+	if len(devs) != 2 || devs[1].Mode != ModeOnline || !devs[1].Shared || devs[0].Mode != ModeTraffic ||
+		devs[0].Type() != TypePhone || devs[1].Type() != TypeConsole {
 		t.Fatalf("unexpected devices: %+v", devs)
 	}
 	if err := s.DeleteDevice("aa:01"); err != nil {
@@ -103,12 +106,13 @@ func TestProfilesAndDevices(t *testing.T) {
 func TestUsageCountsParallelMinutesOnce(t *testing.T) {
 	s := newStore(t)
 	base := time.Date(2026, 11, 18, 15, 0, 0, 0, time.UTC)
-	samples := make([]Sample, 0, 30)
+	samples := make([]Sample, 0, 40)
 	for i := range 10 {
 		ts := base.Add(time.Duration(i) * time.Minute)
 		samples = append(samples,
 			Sample{TS: ts, MAC: "switch", ProfileID: "max", Seconds: 60, Active: true, APName: "AP Wohnzimmer"},
-			Sample{TS: ts, MAC: "iphone", ProfileID: "max", Seconds: 60, Active: i < 5},
+			Sample{TS: ts, MAC: "switch3", ProfileID: "max", Seconds: 60, Active: i < 5},
+			Sample{TS: ts, MAC: "iphone", ProfileID: "max", Type: TypePhone, Seconds: 60, Active: i < 3},
 			Sample{TS: ts, MAC: "switch2", ProfileID: "lea", Seconds: 60, Active: true},
 		)
 	}
@@ -118,29 +122,32 @@ func TestUsageCountsParallelMinutesOnce(t *testing.T) {
 	if err := s.AddSamples(nil); err != nil {
 		t.Fatal(err)
 	}
-	u, err := s.Usage("max", base, base.Add(time.Hour))
+	u, err := s.Usage("max", TypeConsole, base, base.Add(time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if u != 10*time.Minute {
 		t.Fatalf("usage = %v, want 10m", u)
 	}
-	u, _ = s.Usage("max", base.Add(5*time.Minute), base.Add(time.Hour))
+	u, _ = s.Usage("max", TypeConsole, base.Add(5*time.Minute), base.Add(time.Hour))
 	if u != 5*time.Minute {
 		t.Fatalf("partial usage = %v", u)
 	}
+	if u, _ := s.Usage("max", TypePhone, base, base.Add(time.Hour)); u != 3*time.Minute {
+		t.Fatalf("phone usage = %v, want 3m", u)
+	}
 
 	got, err := s.Samples("max", base, base.Add(time.Hour), time.UTC)
-	if err != nil || len(got) != 20 || got[0].APName == "" && got[1].APName == "" {
+	if err != nil || len(got) != 30 {
 		t.Fatalf("unexpected samples: %d %v", len(got), err)
 	}
 	all, _ := s.Samples("", base, base.Add(time.Hour), time.UTC)
-	if len(all) != 30 {
+	if len(all) != 40 {
 		t.Fatalf("expected all samples, got %d", len(all))
 	}
 
 	n, err := s.PruneSamples(base.Add(5 * time.Minute))
-	if err != nil || n != 15 {
+	if err != nil || n != 20 {
 		t.Fatalf("pruned %d, %v", n, err)
 	}
 }
@@ -189,5 +196,42 @@ func TestEvents(t *testing.T) {
 	}
 	if len(ev) != 2 || ev[0].Message != "now" || ev[1].Message != "second" {
 		t.Fatalf("unexpected events: %+v", ev)
+	}
+}
+
+func TestMigrationAddsPhoneRules(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old.db")
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, stmt := range []string{
+		migrations[0],
+		`PRAGMA user_version = 1`,
+		`INSERT INTO profiles (id, name, daily_minutes) VALUES ('max', 'Max', 90)`,
+		`INSERT INTO devices (mac, name, profile_id, mode) VALUES ('ip', 'iPhone', 'max', 'traffic')`,
+		`INSERT INTO samples (ts, mac, profile_id, seconds, active) VALUES (100, 'ip', 'max', 60, 1)`,
+	} {
+		if _, err := db.Exec(stmt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = db.Close()
+
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	p, err := s.Profile("max")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Console.DailyMinutes != 90 || len(p.Phone.Schedule) != 7 || p.Phone.Schedule[time.Monday][0].End != 20*60+30 {
+		t.Fatalf("unexpected migrated profile: %+v", p)
+	}
+	u, err := s.Usage("max", TypePhone, time.Unix(0, 0), time.Unix(1000, 0))
+	if err != nil || u != time.Minute {
+		t.Fatalf("migrated phone usage = %v, %v", u, err)
 	}
 }

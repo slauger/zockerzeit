@@ -25,6 +25,15 @@ const (
 	ModeTraffic = "traffic"
 )
 
+// Device types. Each type has its own time windows and budget per profile.
+const (
+	TypeConsole = "console"
+	TypePhone   = "phone"
+)
+
+// DeviceTypes lists all device types in display order.
+var DeviceTypes = []string{TypeConsole, TypePhone}
+
 // Override kinds.
 const (
 	KindLock    = "lock"    // profile or device blocked until Until
@@ -36,18 +45,32 @@ const (
 // ErrNotFound is returned when a record does not exist.
 var ErrNotFound = errors.New("not found")
 
-// Profile is a person whose play time is managed.
-type Profile struct {
-	ID            string         `json:"id"`
-	Name          string         `json:"name"`
+// RuleSet holds the time windows and budget for one device type.
+type RuleSet struct {
 	DailyMinutes  int            `json:"dailyMinutes"`
 	WeeklyMinutes int            `json:"weeklyMinutes"`
 	Schedule      rules.Schedule `json:"schedule"`
 }
 
-// Limits returns the rule limits of the profile.
-func (p Profile) Limits() rules.Limits {
-	return rules.Limits{DailyMinutes: p.DailyMinutes, WeeklyMinutes: p.WeeklyMinutes, Schedule: p.Schedule}
+// Limits converts the rule set into rule engine input.
+func (r RuleSet) Limits() rules.Limits {
+	return rules.Limits{DailyMinutes: r.DailyMinutes, WeeklyMinutes: r.WeeklyMinutes, Schedule: r.Schedule}
+}
+
+// Profile is a person whose play time is managed.
+type Profile struct {
+	ID      string  `json:"id"`
+	Name    string  `json:"name"`
+	Console RuleSet `json:"console"`
+	Phone   RuleSet `json:"phone"`
+}
+
+// Rules returns the rule set for a device type.
+func (p Profile) Rules(deviceType string) RuleSet {
+	if deviceType == TypePhone {
+		return p.Phone
+	}
+	return p.Console
 }
 
 // Device is a managed client device.
@@ -59,11 +82,21 @@ type Device struct {
 	Mode      string `json:"mode"`
 }
 
+// Type returns the device type. Phones are tracked by traffic, everything
+// else by connection time.
+func (d Device) Type() string {
+	if d.Mode == ModeTraffic {
+		return TypePhone
+	}
+	return TypeConsole
+}
+
 // Sample is one poll result for one device.
 type Sample struct {
 	TS        time.Time
 	MAC       string
 	ProfileID string
+	Type      string
 	Seconds   int
 	Active    bool
 	Bytes     int64
@@ -147,6 +180,15 @@ var migrations = []string{
 		message TEXT NOT NULL
 	);
 	CREATE INDEX events_ts ON events (ts);`,
+	// Separate rules for phones. Existing profiles get a phone schedule of
+	// 07:00-20:30 every day without a budget.
+	`ALTER TABLE profiles ADD COLUMN phone_daily_minutes INTEGER NOT NULL DEFAULT 0;
+	ALTER TABLE profiles ADD COLUMN phone_weekly_minutes INTEGER NOT NULL DEFAULT 0;
+	ALTER TABLE profiles ADD COLUMN phone_schedule TEXT NOT NULL DEFAULT '{}';
+	UPDATE profiles SET phone_schedule = '{"0":[{"start":420,"end":1230}],"1":[{"start":420,"end":1230}],"2":[{"start":420,"end":1230}],"3":[{"start":420,"end":1230}],"4":[{"start":420,"end":1230}],"5":[{"start":420,"end":1230}],"6":[{"start":420,"end":1230}]}';
+	ALTER TABLE samples ADD COLUMN device_type TEXT NOT NULL DEFAULT 'console';
+	UPDATE samples SET device_type = 'phone' WHERE mac IN (SELECT mac FROM devices WHERE mode = 'traffic');
+	CREATE INDEX samples_profile_type_ts ON samples (profile_id, device_type, ts);`,
 }
 
 // Open opens (and migrates) the database at path. Use ":memory:" for tests.
@@ -203,7 +245,7 @@ func (s *Store) migrate() error {
 
 // Profiles returns all profiles ordered by name.
 func (s *Store) Profiles() ([]Profile, error) {
-	rows, err := s.db.Query(`SELECT id, name, daily_minutes, weekly_minutes, schedule FROM profiles ORDER BY name COLLATE NOCASE`)
+	rows, err := s.db.Query(`SELECT ` + profileColumns + ` FROM profiles ORDER BY name COLLATE NOCASE`)
 	if err != nil {
 		return nil, err
 	}
@@ -221,7 +263,7 @@ func (s *Store) Profiles() ([]Profile, error) {
 
 // Profile returns a single profile.
 func (s *Store) Profile(id string) (Profile, error) {
-	row := s.db.QueryRow(`SELECT id, name, daily_minutes, weekly_minutes, schedule FROM profiles WHERE id = ?`, id)
+	row := s.db.QueryRow(`SELECT `+profileColumns+` FROM profiles WHERE id = ?`, id)
 	p, err := scanProfile(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return p, ErrNotFound
@@ -229,34 +271,53 @@ func (s *Store) Profile(id string) (Profile, error) {
 	return p, err
 }
 
+const profileColumns = `id, name, daily_minutes, weekly_minutes, schedule, phone_daily_minutes, phone_weekly_minutes, phone_schedule`
+
 type scanner interface{ Scan(...any) error }
 
 func scanProfile(r scanner) (Profile, error) {
 	var p Profile
-	var sched string
-	if err := r.Scan(&p.ID, &p.Name, &p.DailyMinutes, &p.WeeklyMinutes, &sched); err != nil {
+	var consoleSched, phoneSched string
+	if err := r.Scan(&p.ID, &p.Name, &p.Console.DailyMinutes, &p.Console.WeeklyMinutes, &consoleSched,
+		&p.Phone.DailyMinutes, &p.Phone.WeeklyMinutes, &phoneSched); err != nil {
 		return p, err
 	}
-	p.Schedule = rules.Schedule{}
-	if err := json.Unmarshal([]byte(sched), &p.Schedule); err != nil {
+	p.Console.Schedule = rules.Schedule{}
+	p.Phone.Schedule = rules.Schedule{}
+	if err := json.Unmarshal([]byte(consoleSched), &p.Console.Schedule); err != nil {
 		return p, fmt.Errorf("profile %s: schedule: %w", p.ID, err)
+	}
+	if err := json.Unmarshal([]byte(phoneSched), &p.Phone.Schedule); err != nil {
+		return p, fmt.Errorf("profile %s: phone schedule: %w", p.ID, err)
 	}
 	return p, nil
 }
 
+func marshalSchedule(s rules.Schedule) (string, error) {
+	if s == nil {
+		s = rules.Schedule{}
+	}
+	b, err := json.Marshal(s)
+	return string(b), err
+}
+
 // SaveProfile inserts or updates a profile.
 func (s *Store) SaveProfile(p Profile) error {
-	if p.Schedule == nil {
-		p.Schedule = rules.Schedule{}
-	}
-	sched, err := json.Marshal(p.Schedule)
+	consoleSched, err := marshalSchedule(p.Console.Schedule)
 	if err != nil {
 		return err
 	}
-	_, err = s.db.Exec(`INSERT INTO profiles (id, name, daily_minutes, weekly_minutes, schedule) VALUES (?, ?, ?, ?, ?)
+	phoneSched, err := marshalSchedule(p.Phone.Schedule)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(`INSERT INTO profiles (`+profileColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET name = excluded.name, daily_minutes = excluded.daily_minutes,
-		weekly_minutes = excluded.weekly_minutes, schedule = excluded.schedule`,
-		p.ID, p.Name, p.DailyMinutes, p.WeeklyMinutes, string(sched))
+		weekly_minutes = excluded.weekly_minutes, schedule = excluded.schedule,
+		phone_daily_minutes = excluded.phone_daily_minutes, phone_weekly_minutes = excluded.phone_weekly_minutes,
+		phone_schedule = excluded.phone_schedule`,
+		p.ID, p.Name, p.Console.DailyMinutes, p.Console.WeeklyMinutes, consoleSched,
+		p.Phone.DailyMinutes, p.Phone.WeeklyMinutes, phoneSched)
 	return err
 }
 
@@ -314,15 +375,15 @@ func (s *Store) AddSamples(samples []Sample) error {
 	if err != nil {
 		return err
 	}
-	stmt, err := tx.Prepare(`INSERT OR REPLACE INTO samples (ts, mac, profile_id, seconds, active, bytes, ap_name, essid)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+	stmt, err := tx.Prepare(`INSERT OR REPLACE INTO samples (ts, mac, profile_id, device_type, seconds, active, bytes, ap_name, essid)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		_ = tx.Rollback()
 		return err
 	}
 	defer func() { _ = stmt.Close() }()
 	for _, sm := range samples {
-		if _, err := stmt.Exec(sm.TS.Unix(), sm.MAC, sm.ProfileID, sm.Seconds, sm.Active, sm.Bytes, sm.APName, sm.ESSID); err != nil {
+		if _, err := stmt.Exec(sm.TS.Unix(), sm.MAC, sm.ProfileID, deviceType(sm.Type), sm.Seconds, sm.Active, sm.Bytes, sm.APName, sm.ESSID); err != nil {
 			_ = tx.Rollback()
 			return err
 		}
@@ -330,22 +391,29 @@ func (s *Store) AddSamples(samples []Sample) error {
 	return tx.Commit()
 }
 
-// Usage returns the play time of a profile in [from, to). Minutes in which
-// several devices were active at once are counted only once.
-func (s *Store) Usage(profileID string, from, to time.Time) (time.Duration, error) {
+func deviceType(t string) string {
+	if t == TypePhone {
+		return TypePhone
+	}
+	return TypeConsole
+}
+
+// Usage returns the play time of a profile on one device type in [from, to).
+// Minutes in which several devices were active at once count only once.
+func (s *Store) Usage(profileID, deviceType string, from, to time.Time) (time.Duration, error) {
 	var secs int64
 	err := s.db.QueryRow(`SELECT COALESCE(SUM(sec), 0) FROM (
 			SELECT MAX(seconds) AS sec FROM samples
-			WHERE profile_id = ? AND active = 1 AND ts >= ? AND ts < ?
+			WHERE profile_id = ? AND device_type = ? AND active = 1 AND ts >= ? AND ts < ?
 			GROUP BY ts
-		)`, profileID, from.Unix(), to.Unix()).Scan(&secs)
+		)`, profileID, deviceType, from.Unix(), to.Unix()).Scan(&secs)
 	return time.Duration(secs) * time.Second, err
 }
 
 // Samples returns all samples of a profile in [from, to). An empty profileID
 // returns samples of all profiles.
 func (s *Store) Samples(profileID string, from, to time.Time, loc *time.Location) ([]Sample, error) {
-	q := `SELECT ts, mac, profile_id, seconds, active, bytes, ap_name, essid FROM samples WHERE ts >= ? AND ts < ?`
+	q := `SELECT ts, mac, profile_id, device_type, seconds, active, bytes, ap_name, essid FROM samples WHERE ts >= ? AND ts < ?`
 	args := []any{from.Unix(), to.Unix()}
 	if profileID != "" {
 		q += ` AND profile_id = ?`
@@ -361,7 +429,7 @@ func (s *Store) Samples(profileID string, from, to time.Time, loc *time.Location
 	for rows.Next() {
 		var sm Sample
 		var ts int64
-		if err := rows.Scan(&ts, &sm.MAC, &sm.ProfileID, &sm.Seconds, &sm.Active, &sm.Bytes, &sm.APName, &sm.ESSID); err != nil {
+		if err := rows.Scan(&ts, &sm.MAC, &sm.ProfileID, &sm.Type, &sm.Seconds, &sm.Active, &sm.Bytes, &sm.APName, &sm.ESSID); err != nil {
 			return nil, err
 		}
 		sm.TS = time.Unix(ts, 0).In(loc)

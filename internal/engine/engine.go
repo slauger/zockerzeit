@@ -59,10 +59,32 @@ type DeviceState struct {
 // ProfileView combines a profile with its current status.
 type ProfileView struct {
 	Profile   store.Profile    `json:"profile"`
-	Status    rules.Status     `json:"status"`
+	Console   rules.Status     `json:"console"`
+	Phone     rules.Status     `json:"phone"`
 	Overrides []store.Override `json:"overrides"`
 	Devices   []DeviceState    `json:"devices"`
 }
+
+// Status returns the status for a device type.
+func (v ProfileView) Status(deviceType string) rules.Status {
+	if deviceType == store.TypePhone {
+		return v.Phone
+	}
+	return v.Console
+}
+
+// HasType reports whether the profile has devices of the given type.
+func (v ProfileView) HasType(deviceType string) bool {
+	for _, d := range v.Devices {
+		if d.Device.Type() == deviceType && d.Device.ProfileID == v.Profile.ID {
+			return true
+		}
+	}
+	return false
+}
+
+// TypeLabels are the German display names of the device types.
+var TypeLabels = map[string]string{store.TypeConsole: "Konsole", store.TypePhone: "Handy"}
 
 // SeenClient is a client currently connected to the WLAN.
 type SeenClient struct {
@@ -258,7 +280,7 @@ func (e *Engine) tick(ctx context.Context, now time.Time) error {
 		}
 		if elapsed >= time.Second {
 			samples = append(samples, store.Sample{
-				TS: now, MAC: d.MAC, ProfileID: ds.AttributedTo, Seconds: int(elapsed.Round(time.Second).Seconds()),
+				TS: now, MAC: d.MAC, ProfileID: ds.AttributedTo, Type: d.Type(), Seconds: int(elapsed.Round(time.Second).Seconds()),
 				Active: ds.Active, Bytes: delta, APName: ds.APName, ESSID: ds.ESSID,
 			})
 		}
@@ -271,9 +293,9 @@ func (e *Engine) tick(ctx context.Context, now time.Time) error {
 	if err != nil {
 		return err
 	}
-	statuses := make(map[string]rules.Status, len(views))
+	statuses := make(map[string]ProfileView, len(views))
 	for _, v := range views {
-		statuses[v.Profile.ID] = v.Status
+		statuses[v.Profile.ID] = v
 	}
 
 	var errs []error
@@ -291,7 +313,9 @@ func (e *Engine) tick(ctx context.Context, now time.Time) error {
 				views[i].Devices = append(views[i].Devices, *states[d.MAC])
 			}
 		}
-		e.warn(ctx, views[i], now)
+		for _, t := range store.DeviceTypes {
+			e.warn(ctx, views[i], t, now)
+		}
 	}
 
 	managed := make(map[string]bool, len(devices))
@@ -350,20 +374,25 @@ func (e *Engine) evaluate(profiles []store.Profile, ovs []store.Override, now ti
 	weekStart := rules.StartOfWeek(now)
 	views := make([]ProfileView, 0, len(profiles))
 	for _, p := range profiles {
-		today, err := e.store.Usage(p.ID, dayStart, now.Add(time.Second))
-		if err != nil {
-			return nil, err
-		}
-		week, err := e.store.Usage(p.ID, weekStart, now.Add(time.Second))
-		if err != nil {
-			return nil, err
-		}
 		po, list := profileOverrides(p.ID, ovs)
-		views = append(views, ProfileView{
-			Profile:   p,
-			Status:    rules.Evaluate(p.Limits(), rules.Usage{Today: today, Week: week}, po, now),
-			Overrides: list,
-		})
+		v := ProfileView{Profile: p, Overrides: list}
+		for _, t := range store.DeviceTypes {
+			today, err := e.store.Usage(p.ID, t, dayStart, now.Add(time.Second))
+			if err != nil {
+				return nil, err
+			}
+			week, err := e.store.Usage(p.ID, t, weekStart, now.Add(time.Second))
+			if err != nil {
+				return nil, err
+			}
+			st := rules.Evaluate(p.Rules(t).Limits(), rules.Usage{Today: today, Week: week}, po, now)
+			if t == store.TypePhone {
+				v.Phone = st
+			} else {
+				v.Console = st
+			}
+		}
+		views = append(views, v)
 	}
 	return views, nil
 }
@@ -408,7 +437,7 @@ func attributedProfile(d store.Device, ovs []store.Override) string {
 }
 
 // decide returns whether a device should be blocked and why.
-func decide(d store.Device, statuses map[string]rules.Status, ovs []store.Override, now time.Time) (bool, string) {
+func decide(d store.Device, statuses map[string]ProfileView, ovs []store.Override, now time.Time) (bool, string) {
 	for _, o := range ovs {
 		if o.DeviceMAC == d.MAC && o.Kind == store.KindLock {
 			return true, "Gerät gesperrt bis " + o.Until.Format("15:04")
@@ -419,10 +448,11 @@ func decide(d store.Device, statuses map[string]rules.Status, ovs []store.Overri
 			return false, fmt.Sprintf("Freigabe bis %s (noch %d Min)", o.Until.Format("15:04"), int(o.Until.Sub(now).Minutes()+0.5))
 		}
 	}
-	st, ok := statuses[d.ProfileID]
+	v, ok := statuses[d.ProfileID]
 	if !ok {
 		return false, "Kein Profil"
 	}
+	st := v.Status(d.Type())
 	return !st.Allowed, st.Reason
 }
 
@@ -470,16 +500,17 @@ func (e *Engine) enforce(ctx context.Context, ds *DeviceState, now time.Time) er
 	return nil
 }
 
-// warn sends a notification when a profile's remaining time crosses one of
-// the configured thresholds. Each deadline is announced once per threshold.
-func (e *Engine) warn(ctx context.Context, v ProfileView, now time.Time) {
-	st := v.Status
+// warn sends a notification when the remaining time of a profile on one
+// device type crosses one of the configured thresholds. Each deadline is
+// announced once per threshold.
+func (e *Engine) warn(ctx context.Context, v ProfileView, deviceType string, now time.Time) {
+	st := v.Status(deviceType)
 	if e.notify == nil || !st.Allowed || st.Remaining < 0 {
 		return
 	}
 	playing := false
 	for _, d := range v.Devices {
-		playing = playing || d.Active
+		playing = playing || (d.Active && d.Device.Type() == deviceType)
 	}
 	if !playing {
 		return
@@ -490,12 +521,12 @@ func (e *Engine) warn(ctx context.Context, v ProfileView, now time.Time) {
 		if left > thr {
 			continue
 		}
-		key := fmt.Sprintf("%s|%d|%d", v.Profile.ID, deadline.Unix(), thr)
+		key := fmt.Sprintf("%s|%s|%d|%d", v.Profile.ID, deviceType, deadline.Unix(), thr)
 		if e.warned[key] {
 			continue
 		}
 		e.warned[key] = true
-		msg := fmt.Sprintf("%s: noch %d Minuten Zockerzeit (bis %s).", v.Profile.Name, left, deadline.Format("15:04"))
+		msg := fmt.Sprintf("%s: noch %d Minuten %s (bis %s).", v.Profile.Name, left, TypeLabels[deviceType], deadline.Format("15:04"))
 		if err := e.notify.Notify(ctx, "Zockerzeit", msg); err != nil {
 			e.log.Warn("notification failed", "err", err)
 		}

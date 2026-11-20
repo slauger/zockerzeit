@@ -189,10 +189,10 @@ func TestActions(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, p := range status.Profiles {
-		if p.Profile.ID == "lea" && p.Status.Allowed {
+		if p.Profile.ID == "lea" && p.Console.Allowed {
 			t.Fatal("lea should be locked")
 		}
-		if p.Profile.ID == "max" && !p.Status.Allowed {
+		if p.Profile.ID == "max" && !p.Console.Allowed {
 			t.Fatal("max should be allowed")
 		}
 	}
@@ -222,7 +222,11 @@ func TestActions(t *testing.T) {
 
 func TestProfilesAndDevices(t *testing.T) {
 	e := newEnv(t, "")
-	form := url.Values{"name": {"Großer Bruder"}, "daily": {"60"}, "weekly": {"300"}, "win_1": {"15:00-17:00"}, "win_6": {"10:00-12:00, 14:00-18:00"}}
+	form := url.Values{
+		"name": {"Großer Bruder"}, "console_daily": {"60"}, "console_weekly": {"300"},
+		"console_win_1": {"15:00-17:00"}, "console_win_6": {"10:00-12:00, 14:00-18:00"},
+		"phone_daily": {""}, "phone_win_0": {"07:00-20:30"},
+	}
 	if _, body := e.post("/regeln", form); !strings.Contains(body, "gespeichert") {
 		t.Fatal("saving profile failed")
 	}
@@ -230,7 +234,8 @@ func TestProfilesAndDevices(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.DailyMinutes != 60 || len(p.Schedule[time.Saturday]) != 2 || len(p.Schedule[time.Sunday]) != 0 {
+	if p.Console.DailyMinutes != 60 || len(p.Console.Schedule[time.Saturday]) != 2 || len(p.Console.Schedule[time.Sunday]) != 0 ||
+		p.Phone.DailyMinutes != 0 || len(p.Phone.Schedule[time.Sunday]) != 1 {
 		t.Fatalf("unexpected profile: %+v", p)
 	}
 	if _, body := e.post("/regeln", form); !strings.Contains(body, "gibt es schon") {
@@ -238,8 +243,10 @@ func TestProfilesAndDevices(t *testing.T) {
 	}
 	for _, bad := range []url.Values{
 		{"name": {""}},
-		{"name": {"X"}, "win_1": {"18:00-15:00"}},
-		{"name": {"Y"}, "daily": {"-5"}},
+		{"name": {"X"}, "console_win_1": {"18:00-15:00"}},
+		{"name": {"Y"}, "console_daily": {"-5"}},
+		{"name": {"Z"}, "phone_weekly": {"viel"}},
+		{"name": {"W"}, "phone_win_3": {"abends"}},
 	} {
 		if _, body := e.post("/regeln", bad); !strings.Contains(body, "banner err") {
 			t.Errorf("expected error for %v", bad)

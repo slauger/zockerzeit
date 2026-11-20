@@ -6,7 +6,7 @@
 
 Zockerzeit tracks and limits the play time of kids by blocking their consoles and phones on a UniFi WLAN. Parents agree on time windows and daily or weekly budgets, Zockerzeit records when, how long and where each device is used and cuts the WLAN when the time is up, without anyone having to walk over and argue.
 
-- 🎮 **Time windows and budgets** - per weekday windows, daily and weekly limits per kid
+- 🎮 **Time windows and budgets** - per weekday windows, daily and weekly limits per kid, separately for consoles and phones (night lock included)
 - 📊 **History** - play time per day and device, timeline per day, weekday/hour heatmap, usage per room (access point)
 - ⛔ **Automatic blocking** - devices are blocked and unblocked via the UniFi controller
 - 👆 **Parent controls** - one tap for bonus minutes, free play, lock for an hour or until tomorrow

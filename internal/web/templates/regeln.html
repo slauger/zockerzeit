@@ -1,47 +1,68 @@
 {{define "content"}}
-{{$wd := .Data.Weekdays}}
-<h1>Regeln</h1>
-<p class="muted">Zeitfenster pro Tag als <code>15:00-18:00</code>, mehrere mit Komma getrennt. Ein leeres Feld heißt: an diesem Tag keine Spielzeit. Limits in Minuten, <code>0</code> heißt ohne Limit.</p>
+{{$d := .Data}}
+<div class="page-head">
+  <h1>Regeln</h1>
+</div>
+<p class="lead">Außerhalb der Zeitfenster ist das Gerät gesperrt, so entsteht auch die Nachtsperre. Zeiten schreibst du als <code>15:00-18:30</code>, mehrere mit Komma. Ein leeres Limit heißt: kein Limit.</p>
 
-{{range .Data.Profiles}}
-{{$p := .}}
-<section class="card">
-  <form method="post" action="/regeln" class="rules-form">
-    <input type="hidden" name="id" value="{{.ID}}">
-    <div class="row">
-      <label>Name <input name="name" value="{{.Name}}" required></label>
-      <label>Tageslimit (Min) <input type="number" name="daily" value="{{.DailyMinutes}}" min="0" max="1440" step="5"></label>
-      <label>Wochenlimit (Min) <input type="number" name="weekly" value="{{.WeeklyMinutes}}" min="0" max="10080" step="5"></label>
-    </div>
-    <div class="week-grid">
-      {{range $wd}}
-      <label><span>{{weekday .}}</span><input name="win_{{printf "%d" .}}" value="{{windows (index $p.Schedule .)}}" placeholder="keine Spielzeit"></label>
-      {{end}}
-    </div>
-    <div class="form-actions">
-      <button class="primary">Speichern</button>
-    </div>
-  </form>
-  <form method="post" action="/regeln/{{.ID}}/loeschen" onsubmit="return confirm('Profil {{.Name}} wirklich löschen? Zugeordnete Geräte werden entsperrt.')">
-    <button class="link danger-text">Profil löschen</button>
-  </form>
-</section>
+{{range $i, $p := $d.Profiles}}
+{{$new := eq $p.ID ""}}
+<form method="post" action="/regeln" class="profile-rules{{if $new}} is-new{{end}}" style="--player: var(--series-{{if eq $i 0}}1{{else if eq $i 1}}2{{else}}3{{end}})">
+  <input type="hidden" name="id" value="{{$p.ID}}">
+  <header class="profile-rules-head">
+    {{if $new}}
+      <h2>Neues Profil</h2>
+      <label class="name-field">Name <input name="name" placeholder="z. B. Max" required></label>
+    {{else}}
+      <span class="avatar" aria-hidden="true">{{initial $p.Name}}</span>
+      <label class="name-field">Name <input name="name" value="{{$p.Name}}" required></label>
+    {{end}}
+  </header>
+
+  <div class="rulesets">
+    {{range $d.Types}}
+    {{$t := .Key}}
+    {{$rs := $p.Rules $t}}
+    <fieldset class="ruleset" data-type="{{$t}}">
+      <legend>{{.Label}}</legend>
+      <p class="muted">{{.Hint}}</p>
+
+      <div class="limits">
+        <label>Pro Tag
+          <span class="unit-input"><input type="number" name="{{$t}}_daily" value="{{if $rs.DailyMinutes}}{{$rs.DailyMinutes}}{{end}}" min="0" max="1440" step="5" placeholder="kein Limit"><span>Min</span></span>
+        </label>
+        <label>Pro Woche
+          <span class="unit-input"><input type="number" name="{{$t}}_weekly" value="{{if $rs.WeeklyMinutes}}{{$rs.WeeklyMinutes}}{{end}}" min="0" max="10080" step="15" placeholder="kein Limit"><span>Min</span></span>
+        </label>
+      </div>
+
+      <div class="week">
+        <div class="day-row axis" aria-hidden="true">
+          <span></span><span></span>
+          <div class="axis-labels"><span>0</span><span>6</span><span>12</span><span>18</span><span>24 Uhr</span></div>
+        </div>
+        {{range $d.Weekdays}}
+        {{$ws := index $rs.Schedule .}}
+        <div class="day-row">
+          <label class="day" for="w-{{$p.ID}}-{{$t}}-{{printf "%d" .}}">{{weekday .}}</label>
+          <input id="w-{{$p.ID}}-{{$t}}-{{printf "%d" .}}" class="win" name="{{$t}}_win_{{printf "%d" .}}" value="{{windows $ws}}" placeholder="gesperrt" data-day="{{printf "%d" .}}" autocomplete="off">
+          <div class="track" aria-hidden="true">{{range slots $ws}}<span class="slot" style="left: {{.Left}}%; width: {{.Width}}%" title="{{.Label}}"></span>{{end}}</div>
+        </div>
+        {{end}}
+      </div>
+      <button type="button" class="link copy-weekdays">Montag auf Dienstag bis Freitag übertragen</button>
+    </fieldset>
+    {{end}}
+  </div>
+
+  <footer class="profile-rules-foot">
+    <button class="primary">{{if $new}}Profil anlegen{{else}}Speichern{{end}}</button>
+    {{if not $new}}
+    <button class="link danger-text" formaction="/regeln/{{$p.ID}}/loeschen" formnovalidate onclick="return confirm('Profil {{$p.Name}} löschen? Zugeordnete Geräte werden entsperrt.')">Profil löschen</button>
+    {{end}}
+  </footer>
+</form>
+{{end}}
 {{end}}
 
-<section class="card">
-  <h2>Neues Profil</h2>
-  <form method="post" action="/regeln" class="rules-form">
-    <div class="row">
-      <label>Name <input name="name" placeholder="z. B. Max" required></label>
-      <label>Tageslimit (Min) <input type="number" name="daily" value="90" min="0" max="1440" step="5"></label>
-      <label>Wochenlimit (Min) <input type="number" name="weekly" value="480" min="0" max="10080" step="5"></label>
-    </div>
-    <div class="week-grid">
-      {{range $wd}}
-      <label><span>{{weekday .}}</span><input name="win_{{printf "%d" .}}" value="{{if or (eq (printf "%d" .) "6") (eq (printf "%d" .) "0")}}10:00-12:00, 15:00-19:00{{else}}15:00-18:30{{end}}"></label>
-      {{end}}
-    </div>
-    <div class="form-actions"><button class="primary">Profil anlegen</button></div>
-  </form>
-</section>
-{{end}}
+{{define "scripts"}}<script src="/static/regeln.js"></script>{{end}}

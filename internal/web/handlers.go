@@ -171,9 +171,40 @@ func (s *Server) deviceProfile(mac string) string {
 
 // --- rules --------------------------------------------------------------
 
+type deviceTypeInfo struct {
+	Key   string
+	Label string
+	Hint  string
+}
+
+var deviceTypeInfos = []deviceTypeInfo{
+	{Key: store.TypeConsole, Label: "Konsole", Hint: "Zählt, solange die Konsole im WLAN ist."},
+	{Key: store.TypePhone, Label: "Handy", Hint: "Zählt nur bei Datenverkehr. Anrufe über das Mobilfunknetz gehen immer."},
+}
+
 type rulesData struct {
 	Profiles []store.Profile
+	Types    []deviceTypeInfo
 	Weekdays []time.Weekday
+}
+
+// newProfileTemplate is the starting point offered for a new profile.
+func newProfileTemplate() store.Profile {
+	weekday := []rules.Window{{Start: 15 * 60, End: 18*60 + 30}}
+	weekend := []rules.Window{{Start: 10 * 60, End: 12 * 60}, {Start: 15 * 60, End: 19 * 60}}
+	phone := []rules.Window{{Start: 7 * 60, End: 20*60 + 30}}
+	p := store.Profile{
+		Console: store.RuleSet{DailyMinutes: 90, WeeklyMinutes: 480, Schedule: rules.Schedule{}},
+		Phone:   store.RuleSet{Schedule: rules.Schedule{}},
+	}
+	for _, d := range rules.Weekdays {
+		p.Console.Schedule[d] = weekday
+		if d == time.Saturday || d == time.Sunday {
+			p.Console.Schedule[d] = weekend
+		}
+		p.Phone.Schedule[d] = phone
+	}
+	return p
 }
 
 func (s *Server) rulesPage(w http.ResponseWriter, r *http.Request) {
@@ -182,7 +213,39 @@ func (s *Server) rulesPage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	s.render(w, r, "regeln", "Regeln", rulesData{Profiles: profiles, Weekdays: rules.Weekdays})
+	profiles = append(profiles, newProfileTemplate())
+	s.render(w, r, "regeln", "Regeln", rulesData{Profiles: profiles, Types: deviceTypeInfos, Weekdays: rules.Weekdays})
+}
+
+// parseRuleSet reads the limits and windows of one device type from the form.
+func parseRuleSet(r *http.Request, deviceType string) (store.RuleSet, error) {
+	label := engine.TypeLabels[deviceType]
+	rs := store.RuleSet{Schedule: rules.Schedule{}}
+	var err error
+	if rs.DailyMinutes, err = atoiEmpty(r.FormValue(deviceType + "_daily")); err != nil || rs.DailyMinutes < 0 {
+		return rs, fmt.Errorf("%s: Tageslimit muss eine Zahl ab 0 sein", label)
+	}
+	if rs.WeeklyMinutes, err = atoiEmpty(r.FormValue(deviceType + "_weekly")); err != nil || rs.WeeklyMinutes < 0 {
+		return rs, fmt.Errorf("%s: Wochenlimit muss eine Zahl ab 0 sein", label)
+	}
+	for _, d := range rules.Weekdays {
+		ws, err := rules.ParseWindows(r.FormValue(deviceType + "_win_" + strconv.Itoa(int(d))))
+		if err != nil {
+			return rs, fmt.Errorf("%s, %s: %w", label, rules.WeekdayNames[d], err)
+		}
+		if len(ws) > 0 {
+			rs.Schedule[d] = ws
+		}
+	}
+	return rs, nil
+}
+
+func atoiEmpty(s string) (int, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, nil
+	}
+	return strconv.Atoi(s)
 }
 
 func (s *Server) saveProfile(w http.ResponseWriter, r *http.Request) {
@@ -199,22 +262,15 @@ func (s *Server) saveProfile(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	p := store.Profile{ID: id, Name: name, Schedule: rules.Schedule{}}
-	p.DailyMinutes, _ = strconv.Atoi(r.FormValue("daily"))
-	p.WeeklyMinutes, _ = strconv.Atoi(r.FormValue("weekly"))
-	if p.DailyMinutes < 0 || p.WeeklyMinutes < 0 {
-		redirectErr(w, r, "/regeln", errors.New("Minuten dürfen nicht negativ sein"))
+	p := store.Profile{ID: id, Name: name}
+	var err error
+	if p.Console, err = parseRuleSet(r, store.TypeConsole); err != nil {
+		redirectErr(w, r, "/regeln", err)
 		return
 	}
-	for _, d := range rules.Weekdays {
-		ws, err := rules.ParseWindows(r.FormValue("win_" + strconv.Itoa(int(d))))
-		if err != nil {
-			redirectErr(w, r, "/regeln", fmt.Errorf("%s: %w", rules.WeekdayNames[d], err))
-			return
-		}
-		if len(ws) > 0 {
-			p.Schedule[d] = ws
-		}
+	if p.Phone, err = parseRuleSet(r, store.TypePhone); err != nil {
+		redirectErr(w, r, "/regeln", err)
+		return
 	}
 	if err := s.store.SaveProfile(p); err != nil {
 		redirectErr(w, r, "/regeln", err)
@@ -411,7 +467,7 @@ func (s *Server) statsAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	limit := 0
 	if p, err := s.store.Profile(profileID); err == nil {
-		limit = p.DailyMinutes
+		limit = p.Console.DailyMinutes
 	}
 
 	from := rules.StartOfDay(now).AddDate(0, 0, -(days - 1))
@@ -485,11 +541,18 @@ func (s *Server) kidAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]any{
-		"name":      v.Profile.Name,
-		"allowed":   v.Status.Allowed,
-		"reason":    v.Status.Reason,
-		"usedToday": int(v.Status.UsedToday.Minutes()),
-		"limit":     v.Status.LimitToday,
-		"remaining": int(v.Status.Remaining.Minutes()),
+		"name":    v.Profile.Name,
+		"console": kidStatus(v.Console),
+		"phone":   kidStatus(v.Phone),
 	})
+}
+
+func kidStatus(st rules.Status) map[string]any {
+	return map[string]any{
+		"allowed":   st.Allowed,
+		"reason":    st.Reason,
+		"usedToday": int(st.UsedToday.Minutes()),
+		"limit":     st.LimitToday,
+		"remaining": int(st.Remaining.Minutes()),
+	}
 }

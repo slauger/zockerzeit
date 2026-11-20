@@ -113,8 +113,12 @@ func newHarness(t *testing.T, dryRun bool) *harness {
 	for _, d := range rules.Weekdays {
 		sched[d] = afternoon
 	}
-	must(t, st.SaveProfile(store.Profile{ID: "max", Name: "Max", DailyMinutes: 30, Schedule: sched}))
-	must(t, st.SaveProfile(store.Profile{ID: "lea", Name: "Lea", DailyMinutes: 60, Schedule: sched}))
+	must(t, st.SaveProfile(store.Profile{
+		ID: "max", Name: "Max",
+		Console: store.RuleSet{DailyMinutes: 30, Schedule: sched},
+		Phone:   store.RuleSet{DailyMinutes: 60, Schedule: sched},
+	}))
+	must(t, st.SaveProfile(store.Profile{ID: "lea", Name: "Lea", Console: store.RuleSet{DailyMinutes: 60, Schedule: sched}}))
 	must(t, st.SaveDevice(store.Device{MAC: "sw:01", Name: "Switch", ProfileID: "max", Shared: true, Mode: store.ModeOnline}))
 	must(t, st.SaveDevice(store.Device{MAC: "ip:01", Name: "iPhone", ProfileID: "max", Mode: store.ModeTraffic}))
 
@@ -161,13 +165,16 @@ func TestQuotaBlocksAndNextDayUnblocks(t *testing.T) {
 	for range 31 {
 		h.tick()
 	}
-	if !h.ctrl.blocked["sw:01"] || !h.ctrl.blocked["ip:01"] {
-		t.Fatalf("devices should be blocked after quota, calls=%v", h.ctrl.calls)
+	if !h.ctrl.blocked["sw:01"] {
+		t.Fatalf("switch should be blocked after the console quota, calls=%v", h.ctrl.calls)
+	}
+	if h.ctrl.blocked["ip:01"] {
+		t.Fatal("the phone has its own quota and must stay unblocked")
 	}
 	if h.ctrl.blocked["tv:01"] {
 		t.Fatal("unmanaged device must never be blocked")
 	}
-	st := h.profile("max").Status
+	st := h.profile("max").Console
 	if st.Allowed || st.Reason != "Tageslimit erreicht" || st.UsedToday != 30*time.Minute {
 		t.Fatalf("unexpected status: %+v", st)
 	}
@@ -184,8 +191,8 @@ func TestQuotaBlocksAndNextDayUnblocks(t *testing.T) {
 	}
 
 	ev, _ := h.store.Events(10, berlin)
-	if len(ev) < 4 {
-		t.Fatalf("expected block/unblock events, got %+v", ev)
+	if len(ev) != 2 || ev[0].Kind != "unblock" || ev[1].Kind != "block" {
+		t.Fatalf("expected one block and one unblock event, got %+v", ev)
 	}
 }
 
@@ -197,8 +204,11 @@ func TestTrafficModeNeedsTraffic(t *testing.T) {
 	h.ctrl.traffic("ip:01", 500_000)
 	h.tick() // active minute
 	pv := h.profile("max")
-	if pv.Status.UsedToday != time.Minute {
-		t.Fatalf("expected 1 active minute, got %v", pv.Status.UsedToday)
+	if pv.Phone.UsedToday != time.Minute || pv.Console.UsedToday != 0 {
+		t.Fatalf("expected 1 active phone minute, got phone=%v console=%v", pv.Phone.UsedToday, pv.Console.UsedToday)
+	}
+	if !pv.HasType(store.TypePhone) || pv.HasType(store.TypeConsole) || pv.Status(store.TypePhone) != pv.Phone {
+		t.Fatal("HasType/Status helpers wrong")
 	}
 	if len(pv.Devices) != 1 || !pv.Devices[0].Active || pv.Devices[0].APName != "AP Kinderzimmer" {
 		t.Fatalf("unexpected device state: %+v", pv.Devices)
@@ -222,7 +232,7 @@ func TestOutsideWindowBlocksAndAllowOverride(t *testing.T) {
 	if h.ctrl.blocked["sw:01"] {
 		t.Fatal("allow override should unblock")
 	}
-	if r := h.profile("max").Status.Reason; !strings.HasPrefix(r, "Freigegeben bis") {
+	if r := h.profile("max").Console.Reason; !strings.HasPrefix(r, "Freigegeben bis") {
 		t.Fatalf("reason = %q", r)
 	}
 }
@@ -241,10 +251,10 @@ func TestReleaseForSiblingAndDeviceLock(t *testing.T) {
 	if !h.ctrl.blocked["ip:01"] {
 		t.Fatal("iPhone of max should still be blocked")
 	}
-	if u := h.profile("lea").Status.UsedToday; u != 5*time.Minute {
+	if u := h.profile("lea").Console.UsedToday; u != 5*time.Minute {
 		t.Fatalf("lea usage = %v, want 5m", u)
 	}
-	if u := h.profile("max").Status.UsedToday; u != 0 {
+	if u := h.profile("max").Console.UsedToday; u != 0 {
 		t.Fatalf("max usage = %v, want 0", u)
 	}
 
@@ -267,7 +277,7 @@ func TestBonusAndProfileLock(t *testing.T) {
 	if h.ctrl.blocked["sw:01"] {
 		t.Fatal("bonus should unblock")
 	}
-	if st := h.profile("max").Status; st.LimitToday != 45 {
+	if st := h.profile("max").Console; st.LimitToday != 45 {
 		t.Fatalf("limit with bonus = %d", st.LimitToday)
 	}
 	id, err := h.store.AddOverride(store.Override{Kind: store.KindLock, ProfileID: "max", StartsAt: h.clock, Until: h.clock.Add(time.Hour)})
@@ -279,7 +289,7 @@ func TestBonusAndProfileLock(t *testing.T) {
 	views, err := h.eng.Evaluate()
 	must(t, err)
 	for _, v := range views {
-		if v.Profile.ID == "max" && (len(v.Overrides) != 2 || v.Status.Allowed || len(v.Devices) == 0) {
+		if v.Profile.ID == "max" && (len(v.Overrides) != 2 || v.Console.Allowed || len(v.Devices) == 0) {
 			t.Fatalf("Evaluate view wrong: %+v", v)
 		}
 	}

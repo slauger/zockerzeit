@@ -15,36 +15,39 @@
 <div class="players">
 {{range $i, $v := .Views}}
 {{$p := .Profile}}
-{{$st := .Status}}
-<section class="player {{if $st.Allowed}}is-allowed{{else}}is-paused{{end}}" style="--player: var(--series-{{if eq $i 0}}1{{else}}2{{end}})">
+<section class="player {{if or .Console.Allowed .Phone.Allowed}}is-allowed{{else}}is-paused{{end}}" style="--player: var(--series-{{if eq $i 0}}1{{else}}2{{end}})">
   <header class="player-head">
     <span class="avatar" aria-hidden="true">{{initial $p.Name}}</span>
-    <div>
-      <h2>{{$p.Name}}</h2>
-      <p class="status">{{if $st.Allowed}}Darf spielen{{else}}Gesperrt{{end}}<span class="reason">{{$st.Reason}}</span></p>
-    </div>
+    <h2>{{$p.Name}}</h2>
   </header>
 
-  <div class="timer">
-    {{if $st.Allowed}}
-      <p class="time">{{remaining $st}}</p>
-      <p class="time-caption">noch spielbar</p>
-    {{else}}
-      <p class="time">Pause</p>
-      <p class="time-caption">{{if $st.LimitToday}}{{dur (quotaLeft $st)}} vom Tageslimit übrig{{else}}gerade keine Spielzeit{{end}}</p>
+  <div class="meters">
+    {{range $t := deviceTypes}}
+    {{if or ($v.HasType $t) (eq $t "console")}}
+    {{$st := $v.Status $t}}
+    <div class="meter-block {{if $st.Allowed}}is-allowed{{else}}is-paused{{end}}">
+      <h3>{{typeLabel $t}}</h3>
+      {{if $st.Allowed}}
+        <p class="time">{{remaining $st}}</p>
+        <p class="time-caption">{{if $st.LimitToday}}noch spielbar{{else}}frei, kein Tageslimit{{end}}</p>
+      {{else}}
+        <p class="time">Pause</p>
+        <p class="time-caption">{{$st.Reason}}</p>
+      {{end}}
+      {{with cells $st}}
+      <div class="energy" role="img" aria-label="{{dur $st.UsedToday}} von {{$st.LimitToday}} Minuten heute genutzt">
+        {{range .}}<span class="cell {{.}}"></span>{{end}}
+      </div>
+      {{end}}
+      <dl class="budget">
+        <div><dt>Heute</dt><dd>{{dur $st.UsedToday}}{{if $st.LimitToday}} von {{$st.LimitToday}} Min{{end}}</dd></div>
+        <div><dt>Woche</dt><dd>{{dur $st.UsedWeek}}{{if $st.LimitWeek}} von {{dur (minutes $st.LimitWeek)}}{{end}}</dd></div>
+      </dl>
+      {{if $st.Allowed}}<p class="reason">{{$st.Reason}}</p>{{end}}
+    </div>
+    {{end}}
     {{end}}
   </div>
-
-  {{with cells $st}}
-  <div class="energy" role="img" aria-label="{{dur $st.UsedToday}} von {{$st.LimitToday}} Minuten heute gespielt">
-    {{range .}}<span class="cell {{.}}"></span>{{end}}
-  </div>
-  {{end}}
-  <dl class="budget">
-    <div><dt>Heute gespielt</dt><dd>{{dur $st.UsedToday}}{{if $st.LimitToday}} von {{$st.LimitToday}} Min{{end}}</dd></div>
-    <div><dt>Diese Woche</dt><dd>{{dur $st.UsedWeek}}{{if $st.LimitWeek}} von {{dur (minutes $st.LimitWeek)}}{{end}}</dd></div>
-  </dl>
-  {{if $st.LimitWeek}}<div class="week-bar"><span style="width: {{pct $st.UsedWeek $st.LimitWeek}}%"></span></div>{{end}}
 
   {{if .Devices}}
   <ul class="chips">
