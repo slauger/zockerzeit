@@ -285,6 +285,12 @@ func funcs(loc *time.Location) template.FuncMap {
 		"spanPct": func(a, b time.Time) float64 {
 			return max(b.Sub(a).Minutes()/1440*100, 0.4)
 		},
+		"eventLabel": func(kind string) string {
+			if l, ok := eventLabels[kind]; ok {
+				return l
+			}
+			return kind
+		},
 		"dict": func(kv ...any) map[string]any {
 			m := make(map[string]any, len(kv)/2)
 			for i := 0; i+1 < len(kv); i += 2 {
@@ -317,6 +323,11 @@ func funcs(loc *time.Location) template.FuncMap {
 			}[k]
 		},
 	}
+}
+
+var eventLabels = map[string]string{
+	"block": "gesperrt", "unblock": "entsperrt", "dryrun": "Testmodus", "error": "Fehler",
+	"online": "online", "offline": "offline", "roam": "AP-Wechsel", "parent": "Eltern", "config": "Einstellung",
 }
 
 var weekdayLong = map[time.Weekday]string{

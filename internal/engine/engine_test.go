@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -190,7 +191,7 @@ func TestQuotaBlocksAndNextDayUnblocks(t *testing.T) {
 		t.Fatalf("devices should be unblocked on the next day, calls=%v", h.ctrl.calls)
 	}
 
-	ev, _ := h.store.Events(10, berlin)
+	ev, _ := h.store.Events(10, berlin, "block", "unblock")
 	if len(ev) != 2 || ev[0].Kind != "unblock" || ev[1].Kind != "block" {
 		t.Fatalf("expected one block and one unblock event, got %+v", ev)
 	}
@@ -309,7 +310,7 @@ func TestDryRunNeverBlocks(t *testing.T) {
 	if len(h.ctrl.calls) != 0 {
 		t.Fatalf("dry run must not call the controller: %v", h.ctrl.calls)
 	}
-	ev, _ := h.store.Events(10, berlin)
+	ev, _ := h.store.Events(10, berlin, "dryrun")
 	if len(ev) != 2 { // one per device, not one per tick
 		t.Fatalf("expected 2 dry-run events, got %+v", ev)
 	}
@@ -358,5 +359,50 @@ func TestRunStopsOnCancel(t *testing.T) {
 	}
 	if h.eng.Location() != berlin || h.eng.Now().Location() != berlin {
 		t.Fatal("location not applied")
+	}
+}
+
+func TestPresenceEvents(t *testing.T) {
+	h := newHarness(t, true)
+	h.tick()
+	h.tick()
+	h.ctrl.mu.Lock()
+	sw := h.ctrl.stations["sw:01"]
+	sw.APMAC = "ap:02"
+	h.ctrl.stations["sw:01"] = sw
+	h.ctrl.mu.Unlock()
+	h.tick()
+	h.ctrl.mu.Lock()
+	delete(h.ctrl.stations, "sw:01")
+	h.ctrl.mu.Unlock()
+	h.clock = h.clock.Add(20 * time.Minute)
+	h.tick()
+
+	ev, err := h.store.Events(20, berlin, "online", "offline", "roam")
+	must(t, err)
+	var got []string
+	for _, e := range slices.Backward(ev) {
+		got = append(got, e.Kind+": "+e.Message)
+	}
+	want := []string{
+		"online: iPhone online (AP Kinderzimmer, WLAN Kids)",
+		"online: Switch online (AP Kinderzimmer, WLAN Kids)",
+		"roam: Switch wechselt von AP Kinderzimmer zu ap:02",
+		"offline: Switch offline nach 23 Min",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("presence events:\n%s", strings.Join(got, "\n"))
+	}
+
+	// A restarted engine continues from the log and does not log again.
+	eng := New(h.store, h.ctrl, nil, Options{Interval: time.Minute, DryRun: true, Location: berlin}, h.eng.log)
+	eng.now = func() time.Time { return h.clock }
+	must(t, eng.Tick(context.Background()))
+	ev, _ = h.store.Events(20, berlin, "online", "offline", "roam")
+	if len(ev) != 4 {
+		t.Fatalf("restart logged presence again: %d events", len(ev))
+	}
+	if formatSpan(90*time.Minute) != "1:30 Std" {
+		t.Fatal("formatSpan")
 	}
 }

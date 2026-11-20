@@ -81,6 +81,7 @@ func TestPagesRender(t *testing.T) {
 		"/regeln":                        "Neues Profil",
 		"/geraete":                       "Switch Kinderzimmer",
 		"/protokoll":                     "Protokoll",
+		"/protokoll?art=online":          "Online und offline",
 		"/kind/max":                      "Hallo Max!",
 		"/kind/max/manifest.webmanifest": `"start_url":"/kind/max"`,
 		"/kind/sw.js":                    "zockerzeit-kid-v1",

@@ -108,6 +108,13 @@ type counter struct {
 	total int64
 }
 
+// presence is the last known connection state of a managed device.
+type presence struct {
+	online bool
+	since  time.Time
+	ap     string
+}
+
 // Engine is the control loop.
 type Engine struct {
 	store  *store.Store
@@ -125,6 +132,10 @@ type Engine struct {
 	counters  map[string]counter
 	intent    map[string]bool
 	warned    map[string]bool
+	// presence tracks online/offline transitions for the activity log. It is
+	// seeded from the log on the first poll so restarts do not log again.
+	presence       map[string]presence
+	presenceLoaded bool
 
 	mu       sync.RWMutex
 	snapshot Snapshot
@@ -152,6 +163,7 @@ func New(st *store.Store, ctrl Controller, notify Notifier, opts Options, log *s
 		counters: map[string]counter{},
 		intent:   map[string]bool{},
 		warned:   map[string]bool{},
+		presence: map[string]presence{},
 		snapshot: Snapshot{DryRun: opts.DryRun},
 	}
 }
@@ -288,6 +300,7 @@ func (e *Engine) tick(ctx context.Context, now time.Time) error {
 	if err := e.store.AddSamples(samples); err != nil {
 		return fmt.Errorf("store samples: %w", err)
 	}
+	e.trackPresence(now, devices, states)
 
 	views, err := e.evaluate(profiles, ovs, now)
 	if err != nil {
@@ -593,4 +606,57 @@ func (e *Engine) Release(ctx context.Context, mac string) error {
 		return nil
 	}
 	return e.ctrl.Unblock(ctx, mac)
+}
+
+// trackPresence logs when a managed device comes online, goes offline or
+// moves to another access point.
+func (e *Engine) trackPresence(now time.Time, devices []store.Device, states map[string]*DeviceState) {
+	if !e.presenceLoaded {
+		last, err := e.store.LastPresence(e.opts.Location)
+		if err != nil {
+			e.log.Warn("loading presence from the log failed", "err", err)
+		}
+		for mac, ev := range last {
+			e.presence[mac] = presence{online: ev.Kind == "online", since: ev.TS}
+		}
+		e.presenceLoaded = true
+	}
+	for _, d := range devices {
+		ds := states[d.MAC]
+		p, known := e.presence[d.MAC]
+		switch {
+		case ds.Online && !p.online:
+			e.event(now, d, "online", d.Name+" online"+where(ds))
+			e.presence[d.MAC] = presence{online: true, since: now, ap: ds.APName}
+		case !ds.Online && known && p.online:
+			e.event(now, d, "offline", fmt.Sprintf("%s offline nach %s", d.Name, formatSpan(now.Sub(p.since))))
+			e.presence[d.MAC] = presence{since: now}
+		case ds.Online && p.ap != "" && ds.APName != p.ap:
+			e.event(now, d, "roam", fmt.Sprintf("%s wechselt von %s zu %s", d.Name, p.ap, ds.APName))
+			p.ap = ds.APName
+			e.presence[d.MAC] = p
+		case ds.Online && p.ap == "":
+			p.ap = ds.APName
+			e.presence[d.MAC] = p
+		}
+	}
+}
+
+func where(ds *DeviceState) string {
+	switch {
+	case ds.APName != "" && ds.ESSID != "":
+		return fmt.Sprintf(" (%s, WLAN %s)", ds.APName, ds.ESSID)
+	case ds.APName != "":
+		return " (" + ds.APName + ")"
+	}
+	return ""
+}
+
+// formatSpan renders a duration as "12 Min" or "1:05 Std".
+func formatSpan(d time.Duration) string {
+	m := int(d.Round(time.Minute).Minutes())
+	if m < 60 {
+		return fmt.Sprintf("%d Min", m)
+	}
+	return fmt.Sprintf("%d:%02d Std", m/60, m%60)
 }

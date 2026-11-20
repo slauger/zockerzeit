@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/slauger/zockerzeit/internal/rules"
@@ -506,9 +507,40 @@ func (s *Store) AddEvent(e Event) error {
 	return err
 }
 
-// Events returns the newest events first.
-func (s *Store) Events(limit int, loc *time.Location) ([]Event, error) {
-	rows, err := s.db.Query(`SELECT id, ts, profile_id, device_mac, kind, message FROM events ORDER BY ts DESC, id DESC LIMIT ?`, limit)
+// LastPresence returns the latest online or offline event per device.
+func (s *Store) LastPresence(loc *time.Location) (map[string]Event, error) {
+	rows, err := s.db.Query(`SELECT device_mac, kind, MAX(ts) FROM events
+		WHERE kind IN ('online', 'offline') AND device_mac != '' GROUP BY device_mac`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	out := map[string]Event{}
+	for rows.Next() {
+		var e Event
+		var ts int64
+		if err := rows.Scan(&e.DeviceMAC, &e.Kind, &ts); err != nil {
+			return nil, err
+		}
+		e.TS = time.Unix(ts, 0).In(loc)
+		out[e.DeviceMAC] = e
+	}
+	return out, rows.Err()
+}
+
+// Events returns the newest events first, optionally only of the given kinds.
+func (s *Store) Events(limit int, loc *time.Location, kinds ...string) ([]Event, error) {
+	q := `SELECT id, ts, profile_id, device_mac, kind, message FROM events`
+	var args []any
+	if len(kinds) > 0 {
+		q += ` WHERE kind IN (?` + strings.Repeat(`, ?`, len(kinds)-1) + `)` //nolint:gosec // only placeholders are concatenated
+		for _, k := range kinds {
+			args = append(args, k)
+		}
+	}
+	q += ` ORDER BY ts DESC, id DESC LIMIT ?`
+	args = append(args, limit)
+	rows, err := s.db.Query(q, args...)
 	if err != nil {
 		return nil, err
 	}

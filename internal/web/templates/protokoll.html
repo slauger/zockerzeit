@@ -1,15 +1,25 @@
 {{define "content"}}
-<h1>Protokoll</h1>
+{{with .Data}}
+<div class="page-head">
+  <h1>Protokoll</h1>
+</div>
+<nav class="filter-tabs" aria-label="Filter">
+  <a href="/protokoll" {{if eq .Filter ""}}aria-current="page"{{end}}>Alles</a>
+  <a href="/protokoll?art=online" {{if eq .Filter "online"}}aria-current="page"{{end}}>Online und offline</a>
+  <a href="/protokoll?art=sperren" {{if eq .Filter "sperren"}}aria-current="page"{{end}}>Sperren</a>
+  <a href="/protokoll?art=eltern" {{if eq .Filter "eltern"}}aria-current="page"{{end}}>Eltern</a>
+</nav>
 <section class="card">
-  {{if not .Data}}<p class="muted">Noch keine Einträge.</p>{{end}}
+  {{if not .Events}}<p class="muted">Noch keine Einträge.</p>{{end}}
   <ul class="events">
-    {{range .Data}}
+    {{range .Events}}
     <li class="ev-{{.Kind}}">
       <time>{{datetime .TS}}</time>
-      <span class="tag">{{.Kind}}</span>
+      <span class="tag">{{eventLabel .Kind}}</span>
       <span>{{.Message}}</span>
     </li>
     {{end}}
   </ul>
 </section>
+{{end}}
 {{end}}

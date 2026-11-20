@@ -462,13 +462,30 @@ func validMAC(mac string) bool {
 
 // --- events -------------------------------------------------------------
 
+// eventFilters groups event kinds for the filter on the log page.
+var eventFilters = map[string][]string{
+	"sperren": {"block", "unblock", "dryrun", "error"},
+	"online":  {"online", "offline", "roam"},
+	"eltern":  {"parent", "config"},
+}
+
+type eventsData struct {
+	Events []store.Event
+	Filter string
+}
+
 func (s *Server) eventsPage(w http.ResponseWriter, r *http.Request) {
-	ev, err := s.store.Events(300, s.engine.Location())
+	filter := r.URL.Query().Get("art")
+	kinds, ok := eventFilters[filter]
+	if !ok {
+		filter = ""
+	}
+	ev, err := s.store.Events(500, s.engine.Location(), kinds...)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	s.render(w, r, "protokoll", "Protokoll", ev)
+	s.render(w, r, "protokoll", "Protokoll", eventsData{Events: ev, Filter: filter})
 }
 
 // --- history & stats ----------------------------------------------------
