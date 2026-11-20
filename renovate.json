@@ -1,34 +1,126 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended"],
-  "labels": ["dependencies"],
+  "extends": [
+    "config:recommended"
+  ],
+  "labels": [
+    "dependencies"
+  ],
+  "postUpdateOptions": [
+    "gomodTidy"
+  ],
+  "platformAutomerge": false,
   "customManagers": [
     {
       "customType": "regex",
-      "fileMatch": ["images/.+/Containerfile$"],
+      "managerFilePatterns": [
+        "/(^|/).github/workflows/_go\\.yaml$/"
+      ],
       "matchStrings": [
-        "# renovate: datasource=(?<datasource>.*?) depName=(?<depName>.*?)\\nARG .*?=(?<currentValue>.*)"
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s+version: \"(?<currentValue>[^\"]+)\""
+      ],
+      "extractVersionTemplate": "^v?(?<version>.*)$"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/(^|/)images/.+/Containerfile$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\nARG .*?=(?<currentValue>.*)"
       ],
       "extractVersionTemplate": "^v?(?<version>.*)$"
     }
   ],
   "packageRules": [
     {
-      "matchDatasources": ["golang-version"],
-      "groupName": "go-version"
+      "matchDepNames": [
+        "go",
+        "golang",
+        "docker.io/library/golang"
+      ],
+      "groupName": "Go version"
     },
     {
-      "matchDatasources": ["gomod"],
-      "groupName": "go-dependencies"
+      "matchManagers": [
+        "gomod"
+      ],
+      "groupName": "Go dependencies",
+      "semanticCommitType": "fix"
     },
     {
-      "matchManagers": ["github-actions"],
-      "groupName": "github-actions"
+      "matchManagers": [
+        "github-actions"
+      ],
+      "groupName": "GitHub Actions"
     },
     {
-      "matchDatasources": ["docker"],
-      "groupName": "container-images"
+      "matchManagers": [
+        "dockerfile"
+      ],
+      "groupName": "Container base images",
+      "semanticCommitType": "fix"
+    },
+    {
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchDatasources": [
+        "github-releases"
+      ],
+      "groupName": "CI tooling"
+    },
+    {
+      "description": "Automerge CI tooling (golangci-lint, ...) minor/patch once CI is green",
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchDatasources": [
+        "github-releases"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "automerge": true
+    },
+    {
+      "description": "Automerge container base image updates (excludes the Go toolchain image)",
+      "matchManagers": [
+        "dockerfile"
+      ],
+      "matchPackageNames": [
+        "!docker.io/library/golang"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "digest",
+        "pin"
+      ],
+      "automerge": true
+    },
+    {
+      "description": "Automerge GitHub Actions minor/patch (majors stay manual)",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "automerge": true
+    },
+    {
+      "description": "Automerge Go module patch/digest updates (minor/major stay manual)",
+      "matchManagers": [
+        "gomod"
+      ],
+      "matchUpdateTypes": [
+        "patch",
+        "digest"
+      ],
+      "automerge": true
     }
-  ],
-  "postUpdateOptions": ["gomodTidy"]
+  ]
 }
