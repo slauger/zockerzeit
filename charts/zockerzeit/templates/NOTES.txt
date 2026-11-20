@@ -1,0 +1,19 @@
+Zockerzeit is starting.
+
+{{- if .Values.ingress.enabled }}
+Open: http{{ if .Values.ingress.tls }}s{{ end }}://{{ (index .Values.ingress.hosts 0).host }}/
+{{- else }}
+Open via port-forward:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "zockerzeit.fullname" . }} 8080:{{ .Values.service.port }}
+  http://localhost:8080/
+{{- end }}
+
+{{- if .Values.config.dryRun }}
+
+Test mode is ON: play time is recorded, nothing is blocked.
+Switch it off with --set config.dryRun=false once the history looks right.
+{{- end }}
+{{- if and (not .Values.secret.existingSecret) (not .Values.secret.adminPassword) }}
+
+WARNING: no admin password set, the parent UI is open to everyone on the network.
+{{- end }}

@@ -1,0 +1,22 @@
+{{define "content"}}
+{{with .Data.View}}
+<section class="kid {{if .Status.Allowed}}is-allowed{{else}}is-blocked{{end}}">
+  <h1>Hallo {{.Profile.Name}}!</h1>
+  {{if .Status.Allowed}}
+    <p class="kid-label">Du hast heute noch</p>
+    <p class="kid-big">{{remaining .Status}}</p>
+    <p class="kid-sub">Zockerzeit</p>
+  {{else}}
+    <p class="kid-big">Pause</p>
+    <p class="kid-sub">{{.Status.Reason}}</p>
+  {{end}}
+  {{if .Status.LimitToday}}
+  <div class="meter kid-meter"><span style="width: {{pct .Status.UsedToday .Status.LimitToday}}%"></span></div>
+  <p class="kid-small">{{dur .Status.UsedToday}} von {{.Status.LimitToday}} Min heute gespielt</p>
+  {{end}}
+  {{if .Status.LimitWeek}}<p class="kid-small">Diese Woche: {{dur .Status.UsedWeek}} von {{.Status.LimitWeek}} Min</p>{{end}}
+</section>
+{{end}}
+{{end}}
+
+{{define "scripts"}}<script>setTimeout(() => location.reload(), 60000);</script>{{end}}

@@ -1,0 +1,8 @@
+.git
+.github
+.gitignore
+tests/
+ci/
+*.md
+*.gotmpl
+LICENSE

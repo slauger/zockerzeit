@@ -1,0 +1,47 @@
+{{define "content"}}
+{{$wd := .Data.Weekdays}}
+<h1>Regeln</h1>
+<p class="muted">Zeitfenster pro Tag als <code>15:00-18:00</code>, mehrere mit Komma getrennt. Ein leeres Feld heißt: an diesem Tag keine Spielzeit. Limits in Minuten, <code>0</code> heißt ohne Limit.</p>
+
+{{range .Data.Profiles}}
+{{$p := .}}
+<section class="card">
+  <form method="post" action="/regeln" class="rules-form">
+    <input type="hidden" name="id" value="{{.ID}}">
+    <div class="row">
+      <label>Name <input name="name" value="{{.Name}}" required></label>
+      <label>Tageslimit (Min) <input type="number" name="daily" value="{{.DailyMinutes}}" min="0" max="1440" step="5"></label>
+      <label>Wochenlimit (Min) <input type="number" name="weekly" value="{{.WeeklyMinutes}}" min="0" max="10080" step="5"></label>
+    </div>
+    <div class="week-grid">
+      {{range $wd}}
+      <label><span>{{weekday .}}</span><input name="win_{{printf "%d" .}}" value="{{windows (index $p.Schedule .)}}" placeholder="keine Spielzeit"></label>
+      {{end}}
+    </div>
+    <div class="form-actions">
+      <button class="primary">Speichern</button>
+    </div>
+  </form>
+  <form method="post" action="/regeln/{{.ID}}/loeschen" onsubmit="return confirm('Profil {{.Name}} wirklich löschen? Zugeordnete Geräte werden entsperrt.')">
+    <button class="link danger-text">Profil löschen</button>
+  </form>
+</section>
+{{end}}
+
+<section class="card">
+  <h2>Neues Profil</h2>
+  <form method="post" action="/regeln" class="rules-form">
+    <div class="row">
+      <label>Name <input name="name" placeholder="z. B. Max" required></label>
+      <label>Tageslimit (Min) <input type="number" name="daily" value="90" min="0" max="1440" step="5"></label>
+      <label>Wochenlimit (Min) <input type="number" name="weekly" value="480" min="0" max="10080" step="5"></label>
+    </div>
+    <div class="week-grid">
+      {{range $wd}}
+      <label><span>{{weekday .}}</span><input name="win_{{printf "%d" .}}" value="{{if or (eq (printf "%d" .) "6") (eq (printf "%d" .) "0")}}10:00-12:00, 15:00-19:00{{else}}15:00-18:30{{end}}"></label>
+      {{end}}
+    </div>
+    <div class="form-actions"><button class="primary">Profil anlegen</button></div>
+  </form>
+</section>
+{{end}}

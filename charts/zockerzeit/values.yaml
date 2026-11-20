@@ -1,0 +1,198 @@
+# -- Number of replicas. Zockerzeit uses SQLite, so only 1 is supported.
+replicaCount: 1
+
+image:
+  # -- Container image repository
+  repository: ghcr.io/slauger/zockerzeit
+  # -- Container image tag (defaults to the chart appVersion)
+  tag: ""
+  # -- Image pull policy
+  pullPolicy: IfNotPresent
+
+# -- Image pull secrets for private registries
+imagePullSecrets: []
+# -- Override the chart name
+nameOverride: ""
+# -- Override the fully qualified app name
+fullnameOverride: ""
+# -- Additional pod annotations
+podAnnotations: {}
+# -- Additional pod labels
+podLabels: {}
+# -- Additional environment variables as key-value pairs
+extraEnv: {}
+# -- Existing secret to use as additional environment variables
+extraEnvSecret: ""
+
+# Application configuration, rendered into config.yaml.
+config:
+  # -- Time zone used for schedules and statistics
+  timezone: Europe/Berlin
+  # -- How often the UniFi controller is polled
+  pollInterval: 60s
+  # -- Test mode: record and log, but never block. Disable once the history looks right.
+  dryRun: true
+  # -- Days of usage history to keep
+  retentionDays: 400
+  # -- Traffic threshold per minute for devices in traffic mode (phones)
+  minBytesPerMinute: 150000
+  # -- Remaining minutes at which a push warning is sent
+  warnMinutes: [10, 5]
+  unifi:
+    # -- URL of the UniFi Network Application, e.g. https://unifi.unifi.svc.cluster.local:8443
+    url: ""
+    # -- UniFi site name
+    site: default
+    # -- Set to true for UniFi OS consoles (UDM, UCG, Cloud Key Gen2+)
+    unifiOS: false
+    # -- Skip TLS verification (self-signed controller certificate)
+    insecureSkipVerify: true
+  notify:
+    # -- ntfy topic URL for push notifications (optional)
+    ntfyURL: ""
+
+# Credentials. Either set the values here or reference an existing secret
+# containing the keys ZOCKERZEIT_UNIFI_USERNAME, ZOCKERZEIT_UNIFI_PASSWORD
+# (or ZOCKERZEIT_UNIFI_API_KEY), ZOCKERZEIT_ADMIN_PASSWORD,
+# ZOCKERZEIT_SESSION_SECRET and optionally ZOCKERZEIT_NTFY_TOKEN.
+secret:
+  # -- Name of an existing secret with the keys listed above
+  existingSecret: ""
+  # -- UniFi username (local controller account)
+  unifiUsername: ""
+  # -- UniFi password
+  unifiPassword: ""
+  # -- UniFi API key (alternative to username/password)
+  unifiApiKey: ""
+  # -- Password for the parent web UI
+  adminPassword: ""
+  # -- Secret used to sign session cookies (random if empty, sessions then end on restart)
+  sessionSecret: ""
+  # -- ntfy access token (optional)
+  ntfyToken: ""
+
+persistence:
+  # -- Store the SQLite database on a persistent volume
+  enabled: true
+  # -- Use an existing PersistentVolumeClaim
+  existingClaim: ""
+  # -- Storage class (empty uses the cluster default)
+  storageClass: ""
+  # -- Access modes of the volume
+  accessModes:
+    - ReadWriteOnce
+  # -- Size of the volume
+  size: 1Gi
+
+serviceAccount:
+  # -- Create a service account
+  create: true
+  # -- Service account name (generated if empty)
+  name: ""
+  # -- Service account annotations
+  annotations: {}
+
+service:
+  # -- Service type
+  type: ClusterIP
+  # -- Service port
+  port: 8080
+  # -- Service annotations
+  annotations: {}
+  # -- Service labels
+  labels: {}
+
+ingress:
+  # -- Enable an ingress
+  enabled: false
+  # -- Ingress class name
+  className: ""
+  # -- Ingress annotations
+  annotations: {}
+  # -- Ingress hosts
+  hosts:
+    - host: zockerzeit.local
+      paths:
+        - path: /
+          pathType: Prefix
+  # -- Ingress TLS configuration
+  tls: []
+
+# -- Container resource requests and limits
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi
+  limits:
+    memory: 128Mi
+
+# -- Pod security context
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1001
+  runAsGroup: 1001
+  fsGroup: 1001
+  seccompProfile:
+    type: RuntimeDefault
+
+# -- Container security context
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# -- Node selector for pod assignment
+nodeSelector: {}
+# -- Tolerations for pod assignment
+tolerations: []
+# -- Affinity and anti-affinity rules
+affinity: {}
+# -- Topology spread constraints
+topologySpreadConstraints: []
+# -- Priority class name
+priorityClassName: ""
+
+# -- Update strategy. Recreate avoids two pods writing the same SQLite file.
+updateStrategy:
+  type: Recreate
+# -- Termination grace period in seconds
+terminationGracePeriodSeconds: 30
+
+podDisruptionBudget:
+  # -- Enable a PodDisruptionBudget
+  enabled: false
+  # -- Minimum available pods
+  minAvailable: ""
+  # -- Maximum unavailable pods
+  maxUnavailable: 1
+
+# -- Liveness probe
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  periodSeconds: 30
+# -- Readiness probe
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: http
+  periodSeconds: 10
+# -- Startup probe
+startupProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  failureThreshold: 30
+  periodSeconds: 2
+
+# -- Additional volumes
+extraVolumes: []
+# -- Additional volume mounts
+extraVolumeMounts: []
+# -- Additional sidecar containers
+extraContainers: []
+# -- Additional init containers
+extraInitContainers: []

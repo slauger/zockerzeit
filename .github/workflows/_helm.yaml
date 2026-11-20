@@ -1,0 +1,44 @@
+name: Helm
+
+on:
+  workflow_call:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v5
+
+      - name: Install helm-unittest plugin
+        run: helm plugin install --verify=false https://github.com/helm-unittest/helm-unittest
+
+      - name: Helm lint
+        run: helm lint charts/zockerzeit
+
+      - name: Helm template
+        run: helm template test charts/zockerzeit --set config.unifi.url=https://unifi:8443
+
+      - name: Helm unittest
+        run: helm unittest charts/zockerzeit
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Regenerate chart README
+        uses: docker://jnorwood/helm-docs:v1.14.2
+        with:
+          args: --chart-search-root charts
+
+      - name: Check for drift
+        run: |
+          if ! git diff --exit-code -- charts/zockerzeit/README.md; then
+            echo "::error::Chart README is out of date. Run 'make helm-docs' and commit the result."
+            exit 1
+          fi

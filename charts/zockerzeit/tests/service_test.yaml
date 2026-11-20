@@ -1,0 +1,50 @@
+suite: service
+templates:
+  - service.yaml
+  - ingress.yaml
+  - pvc.yaml
+tests:
+  - it: exposes the http port
+    template: service.yaml
+    asserts:
+      - equal:
+          path: spec.ports[0].port
+          value: 8080
+      - equal:
+          path: spec.ports[0].targetPort
+          value: http
+
+  - it: renders no ingress by default
+    template: ingress.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders an ingress when enabled
+    template: ingress.yaml
+    set:
+      ingress.enabled: true
+      ingress.className: traefik
+      ingress.hosts[0].host: zockerzeit.home.lan
+    asserts:
+      - equal:
+          path: spec.ingressClassName
+          value: traefik
+      - equal:
+          path: spec.rules[0].host
+          value: zockerzeit.home.lan
+
+  - it: keeps the PVC on uninstall
+    template: pvc.yaml
+    asserts:
+      - equal:
+          path: metadata.annotations["helm.sh/resource-policy"]
+          value: keep
+
+  - it: skips the PVC with an existing claim
+    template: pvc.yaml
+    set:
+      persistence.existingClaim: data
+    asserts:
+      - hasDocuments:
+          count: 0

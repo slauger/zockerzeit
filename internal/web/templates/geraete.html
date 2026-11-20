@@ -1,0 +1,78 @@
+{{define "content"}}
+{{with .Data}}
+<h1>Geräte</h1>
+{{if not .Profiles}}<div class="banner warn">Lege zuerst unter <a href="/regeln">Regeln</a> ein Profil an.</div>{{end}}
+
+<section class="card">
+  <h2>Verwaltete Geräte</h2>
+  {{if not .Devices}}<p class="muted">Noch keine Geräte. Unten aus den Geräten im WLAN auswählen.</p>{{end}}
+  {{range .Devices}}
+  {{$d := .}}
+  {{$st := index $.Data.States .MAC}}
+  <form method="post" action="/geraete" class="device-form">
+    <input type="hidden" name="mac" value="{{.MAC}}">
+    <span class="dot {{if $st.Blocked}}blocked{{else if $st.Active}}active{{else if $st.Online}}online{{end}}" title="{{if $st.Blocked}}gesperrt{{else if $st.Online}}online{{else}}offline{{end}}"></span>
+    <label class="grow">Name <input name="name" value="{{.Name}}"></label>
+    <label>Profil
+      <select name="profile">{{range $.Data.Profiles}}<option value="{{.ID}}" {{if eq .ID $d.ProfileID}}selected{{end}}>{{.Name}}</option>{{end}}</select>
+    </label>
+    <label>Zählt als Spielzeit
+      <select name="mode">
+        <option value="online" {{if eq .Mode "online"}}selected{{end}}>wenn verbunden (Konsole)</option>
+        <option value="traffic" {{if eq .Mode "traffic"}}selected{{end}}>bei Datenverkehr (Handy)</option>
+      </select>
+    </label>
+    <label class="check"><input type="checkbox" name="shared" {{if .Shared}}checked{{end}}> gemeinsam genutzt</label>
+    <code class="mac">{{.MAC}}</code>
+    <button class="primary">Speichern</button>
+    <button class="link danger-text" formaction="/geraete/{{.MAC}}/loeschen" onclick="return confirm('{{.Name}} nicht mehr verwalten? Das Gerät wird entsperrt.')">Entfernen</button>
+  </form>
+  {{end}}
+</section>
+
+<section class="card">
+  <h2>Gerade im WLAN</h2>
+  <p class="muted">Alle verbundenen Geräte, die noch nicht verwaltet werden. Wichtig: Beim iPhone in den WLAN-Einstellungen „Private WLAN-Adresse“ auf <em>fest</em> stellen, sonst ändert sich die MAC-Adresse.</p>
+  {{if not .Seen}}<p class="muted">Keine (oder die letzte Abfrage ist fehlgeschlagen).</p>{{end}}
+  {{range .Seen}}
+  <form method="post" action="/geraete" class="device-form">
+    <input type="hidden" name="mac" value="{{.MAC}}">
+    <label class="grow">Name <input name="name" value="{{.Name}}"></label>
+    <label>Profil
+      <select name="profile">{{range $.Data.Profiles}}<option value="{{.ID}}">{{.Name}}</option>{{end}}</select>
+    </label>
+    <label>Zählt als Spielzeit
+      <select name="mode">
+        <option value="online">wenn verbunden (Konsole)</option>
+        <option value="traffic">bei Datenverkehr (Handy)</option>
+      </select>
+    </label>
+    <label class="check"><input type="checkbox" name="shared"> gemeinsam genutzt</label>
+    <span class="muted small">{{.APName}}{{if .ESSID}} · {{.ESSID}}{{end}}</span>
+    <code class="mac">{{.MAC}}</code>
+    <button>Hinzufügen</button>
+  </form>
+  {{end}}
+</section>
+
+<section class="card">
+  <h2>Per MAC-Adresse hinzufügen</h2>
+  <p class="muted">Für Geräte, die gerade offline sind. Die MAC-Adresse der Switch steht unter Systemeinstellungen → Internet.</p>
+  <form method="post" action="/geraete" class="device-form">
+    <label>MAC <input name="mac" placeholder="aa:bb:cc:dd:ee:ff" required></label>
+    <label class="grow">Name <input name="name" placeholder="Switch Kinderzimmer"></label>
+    <label>Profil
+      <select name="profile">{{range .Profiles}}<option value="{{.ID}}">{{.Name}}</option>{{end}}</select>
+    </label>
+    <label>Zählt als Spielzeit
+      <select name="mode">
+        <option value="online">wenn verbunden (Konsole)</option>
+        <option value="traffic">bei Datenverkehr (Handy)</option>
+      </select>
+    </label>
+    <label class="check"><input type="checkbox" name="shared"> gemeinsam genutzt</label>
+    <button>Hinzufügen</button>
+  </form>
+</section>
+{{end}}
+{{end}}

@@ -1,0 +1,62 @@
+{{define "content"}}
+{{with .Data}}
+<h1>Verlauf</h1>
+{{if not .Profiles}}<p class="muted">Noch keine Profile angelegt.</p>{{else}}
+<form method="get" action="/verlauf" class="inline-form filters">
+  <label>Profil
+    <select name="profil" onchange="this.form.submit()">{{range .Profiles}}<option value="{{.ID}}" {{if eq .ID $.Data.Selected}}selected{{end}}>{{.Name}}</option>{{end}}</select>
+  </label>
+  <label>Zeitraum
+    <select name="tage" onchange="this.form.submit()">
+      <option value="7" {{if eq .Days 7}}selected{{end}}>7 Tage</option>
+      <option value="14" {{if eq .Days 14}}selected{{end}}>14 Tage</option>
+      <option value="30" {{if eq .Days 30}}selected{{end}}>30 Tage</option>
+      <option value="90" {{if eq .Days 90}}selected{{end}}>90 Tage</option>
+    </select>
+  </label>
+  <label>Tag für Zeitstrahl
+    <input type="date" name="tag" value="{{.Date}}" onchange="this.form.submit()">
+  </label>
+</form>
+
+<div id="stats" data-profile="{{.Selected}}" data-days="{{.Days}}" data-day="{{.Date}}">
+  <section class="card">
+    <h2>Spielzeit pro Tag</h2>
+    <p class="muted small">Balken pro Gerät. Die Linie „Gesamt“ zählt gleichzeitige Nutzung nur einmal, die gestrichelte Linie ist das Tageslimit.</p>
+    <div class="chart tall"><canvas id="chart-daily"></canvas></div>
+  </section>
+
+  <section class="card">
+    <h2>Zeitstrahl <span class="muted" id="timeline-day"></span></h2>
+    <p class="muted small">Wann an welchem Gerät gespielt wurde.</p>
+    <div class="chart" id="timeline-wrap"><canvas id="chart-timeline"></canvas></div>
+    <p class="muted" id="timeline-empty" hidden>An diesem Tag keine Aktivität.</p>
+  </section>
+
+  <section class="card">
+    <h2>Wann wird gespielt?</h2>
+    <p class="muted small">Durchschnittliche Minuten pro Stunde und Wochentag im gewählten Zeitraum.</p>
+    <div class="heatmap" id="heatmap" role="table" aria-label="Spielzeit nach Wochentag und Stunde"></div>
+  </section>
+
+  <div class="grid two">
+    <section class="card">
+      <h2>Wo?</h2>
+      <p class="muted small">Nach Access Point bzw. Raum.</p>
+      <div class="chart"><canvas id="chart-locations"></canvas></div>
+    </section>
+    <section class="card">
+      <h2>Womit?</h2>
+      <p class="muted small">Nach Gerät.</p>
+      <div class="chart"><canvas id="chart-devices"></canvas></div>
+    </section>
+  </div>
+</div>
+{{end}}
+{{end}}
+{{end}}
+
+{{define "scripts"}}
+<script src="/static/vendor/chart.umd.min.js"></script>
+<script src="/static/verlauf.js"></script>
+{{end}}

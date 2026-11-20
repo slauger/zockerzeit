@@ -1,0 +1,15 @@
+{{define "content"}}
+<h1>Protokoll</h1>
+<section class="card">
+  {{if not .Data}}<p class="muted">Noch keine Einträge.</p>{{end}}
+  <ul class="events">
+    {{range .Data}}
+    <li class="ev-{{.Kind}}">
+      <time>{{datetime .TS}}</time>
+      <span class="tag">{{.Kind}}</span>
+      <span>{{.Message}}</span>
+    </li>
+    {{end}}
+  </ul>
+</section>
+{{end}}

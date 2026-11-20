@@ -1,0 +1,3 @@
+* text=auto
+go.sum linguist-generated
+internal/web/static/vendor/** linguist-vendored

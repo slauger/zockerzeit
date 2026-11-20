@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'LICENSE'
+      - 'CHANGELOG*'
+      - '.github/*.md'
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'LICENSE'
+      - 'CHANGELOG*'
+      - '.github/*.md'
+
+jobs:
+  unicode:
+    uses: ./.github/workflows/_unicode-lint.yaml
+
+  shellcheck:
+    uses: ./.github/workflows/_shellcheck.yaml
+
+  go:
+    uses: ./.github/workflows/_go.yaml
+
+  helm:
+    uses: ./.github/workflows/_helm.yaml
+
+  zockerzeit:
+    needs: go
+    uses: ./.github/workflows/_container-build.yaml
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    with:
+      image_name: zockerzeit
+      dockerfile: images/zockerzeit/Containerfile
+      context: '.'
+      push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      image_tag: main

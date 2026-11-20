@@ -1,0 +1,35 @@
+# Zockerzeit configuration. Copy to config.yaml and adjust.
+# Secrets are better passed as environment variables:
+#   ZOCKERZEIT_UNIFI_USERNAME, ZOCKERZEIT_UNIFI_PASSWORD (or ZOCKERZEIT_UNIFI_API_KEY),
+#   ZOCKERZEIT_ADMIN_PASSWORD, ZOCKERZEIT_SESSION_SECRET, ZOCKERZEIT_NTFY_TOKEN
+
+listen: ":8080"
+database: zockerzeit.db
+timezone: Europe/Berlin
+pollInterval: 60s
+
+# Test mode: records play time and logs what would happen, but never blocks.
+# Keep it on for the first days and check the history before switching it off.
+dryRun: true
+
+# Days of usage history to keep.
+retentionDays: 400
+
+# Devices in "traffic" mode (phones) count a minute as play time only above
+# this amount of traffic per minute.
+minBytesPerMinute: 150000
+
+# Push a warning when this many minutes are left (requires notify.ntfyURL).
+warnMinutes: [10, 5]
+
+unifi:
+  # Self-hosted Network Application: https://<host>:8443, unifiOS: false
+  # UniFi OS consoles (UDM, UCG, Cloud Key Gen2+): https://<host>, unifiOS: true
+  url: https://unifi.example.lan:8443
+  site: default
+  unifiOS: false
+  insecureSkipVerify: true
+
+notify:
+  # ntfy topic URL, e.g. https://ntfy.sh/<random-topic> or a self-hosted instance.
+  ntfyURL: ""

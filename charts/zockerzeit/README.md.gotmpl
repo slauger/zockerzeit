@@ -1,0 +1,26 @@
+{{ template "chart.header" . }}
+{{ template "chart.badgesSection" . }}
+{{ template "chart.description" . }}
+
+## Overview
+
+Deploys Zockerzeit next to a UniFi Network Application. Zockerzeit polls the controller, records play time per device and blocks devices on the WLAN when the agreed play time is used up.
+
+Only a single replica is supported because the data lives in SQLite on a persistent volume.
+
+## Installation
+
+```bash
+helm install zockerzeit oci://ghcr.io/slauger/charts/zockerzeit \
+  --namespace zockerzeit --create-namespace \
+  --set config.unifi.url=https://unifi.unifi.svc.cluster.local:8443 \
+  --set secret.existingSecret=zockerzeit
+```
+
+The secret must contain `ZOCKERZEIT_UNIFI_USERNAME` and `ZOCKERZEIT_UNIFI_PASSWORD` (or `ZOCKERZEIT_UNIFI_API_KEY`), `ZOCKERZEIT_ADMIN_PASSWORD` and `ZOCKERZEIT_SESSION_SECRET`.
+
+{{ template "chart.maintainersSection" . }}
+{{ template "chart.sourcesSection" . }}
+{{ template "chart.requirementsSection" . }}
+{{ template "chart.valuesSection" . }}
+{{ template "helm-docs.versionFooter" . }}

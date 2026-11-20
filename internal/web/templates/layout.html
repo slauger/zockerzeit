@@ -1,0 +1,35 @@
+{{define "layout"}}<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>{{.Title}} · Zockerzeit</title>
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/app.css">
+{{block "head" .}}{{end}}
+</head>
+<body class="page-{{.Nav}}">
+{{if and (ne .Nav "kind") (ne .Nav "login")}}
+<header class="topbar">
+  <a class="brand" href="/"><img src="/static/favicon.svg" alt="" width="28" height="28"><span>Zockerzeit</span></a>
+  <nav>
+    <a href="/" {{if eq .Nav "dashboard"}}aria-current="page"{{end}}>Übersicht</a>
+    <a href="/verlauf" {{if eq .Nav "verlauf"}}aria-current="page"{{end}}>Verlauf</a>
+    <a href="/regeln" {{if eq .Nav "regeln"}}aria-current="page"{{end}}>Regeln</a>
+    <a href="/geraete" {{if eq .Nav "geraete"}}aria-current="page"{{end}}>Geräte</a>
+    <a href="/protokoll" {{if eq .Nav "protokoll"}}aria-current="page"{{end}}>Protokoll</a>
+  </nav>
+  {{if .Auth}}<form method="post" action="/logout" class="logout"><button class="link">Abmelden</button></form>{{end}}
+</header>
+{{end}}
+<main>
+  {{if and .DryRun (ne .Nav "kind")}}<div class="banner warn"><strong>Testmodus:</strong> Zockerzeit zeichnet auf und zeigt, was es tun würde, sperrt aber nichts. Abschalten mit <code>dryRun: false</code>.</div>{{end}}
+  {{if .Flash}}<div class="banner ok">{{.Flash}}</div>{{end}}
+  {{if .Error}}<div class="banner err">{{.Error}}</div>{{end}}
+  {{template "content" .}}
+</main>
+{{if and (ne .Nav "kind") (ne .Nav "login")}}<footer>Zockerzeit {{.Version}}</footer>{{end}}
+{{block "scripts" .}}{{end}}
+</body>
+</html>{{end}}

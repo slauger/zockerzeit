@@ -1,0 +1,68 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: standard
+  enable:
+    - asciicheck
+    - bidichk
+    - bodyclose
+    - copyloopvar
+    - dogsled
+    - durationcheck
+    - errorlint
+    - gocritic
+    - gosec
+    - importas
+    - intrange
+    - loggercheck
+    - misspell
+    - modernize
+    - nakedret
+    - nilerr
+    - nolintlint
+    - prealloc
+    - revive
+    - unconvert
+    - unparam
+  settings:
+    importas:
+      no-unaliased: true
+    staticcheck:
+      checks:
+        - all
+        - -ST1000
+        - -ST1003
+        - -ST1016
+        - -ST1020
+        - -ST1021
+        - -ST1022
+        # Error messages are shown to users in German, where nouns are capitalized.
+        - -ST1005
+    nolintlint:
+      require-specific: true
+    revive:
+      rules:
+        - name: exported
+          disabled: true
+  exclusions:
+    generated: lax
+    rules:
+      # Test helpers construct fixtures with hardcoded values and do not need
+      # the same hardening as production code.
+      - path: _test\.go
+        linters:
+          - gosec
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+
+issues:
+  # Report everything instead of capping repeated findings (the defaults hide
+  # issues beyond 3 of the same kind, which makes CI runs non-exhaustive).
+  max-issues-per-linter: 0
+  max-same-issues: 0

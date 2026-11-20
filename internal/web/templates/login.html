@@ -1,0 +1,11 @@
+{{define "content"}}
+<section class="card login">
+  <img src="/static/favicon.svg" alt="" width="56" height="56">
+  <h1>Zockerzeit</h1>
+  {{if .Data.Failed}}<p class="banner err">Falsches Passwort.</p>{{end}}
+  <form method="post" action="/login">
+    <label>Passwort <input type="password" name="password" autocomplete="current-password" autofocus required></label>
+    <button class="primary">Anmelden</button>
+  </form>
+</section>
+{{end}}

@@ -1,0 +1,137 @@
+suite: deployment
+templates:
+  - deployment.yaml
+  - configmap.yaml
+  - secret.yaml
+set:
+  config.unifi.url: https://unifi.unifi.svc.cluster.local:8443
+tests:
+  - it: fails without a UniFi URL
+    template: deployment.yaml
+    set:
+      config.unifi.url: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: config.unifi.url is required
+
+  - it: runs a single replica with Recreate strategy
+    template: deployment.yaml
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 1
+      - equal:
+          path: spec.strategy.type
+          value: Recreate
+
+  - it: applies hardened security defaults
+    template: deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.template.spec.securityContext.runAsUser
+          value: 1001
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: true
+      - contains:
+          path: spec.template.spec.containers[0].securityContext.capabilities.drop
+          content: ALL
+
+  - it: uses the generated secret by default
+    template: deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].envFrom[0].secretRef.name
+          value: RELEASE-NAME-zockerzeit
+
+  - it: uses an existing secret
+    template: deployment.yaml
+    set:
+      secret.existingSecret: my-secret
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].envFrom[0].secretRef.name
+          value: my-secret
+
+  - it: mounts the persistent volume
+    template: deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: data
+            persistentVolumeClaim:
+              claimName: RELEASE-NAME-zockerzeit
+
+  - it: uses emptyDir without persistence
+    template: deployment.yaml
+    set:
+      persistence.enabled: false
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: data
+            emptyDir: {}
+
+  - it: configures probes
+    template: deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.path
+          value: /healthz
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /readyz
+
+  - it: renders extra env
+    template: deployment.yaml
+    set:
+      extraEnv:
+        FOO: bar
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: FOO
+            value: bar
+
+  - it: renders the config file
+    template: configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "database: /data/zockerzeit.db"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "url: https://unifi.unifi.svc.cluster.local:8443"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "dryRun: true"
+
+  - it: stores credentials as environment keys
+    template: secret.yaml
+    set:
+      secret.unifiUsername: zockerzeit
+      secret.unifiPassword: pw
+      secret.adminPassword: admin
+    asserts:
+      - equal:
+          path: stringData.ZOCKERZEIT_UNIFI_USERNAME
+          value: zockerzeit
+      - equal:
+          path: stringData.ZOCKERZEIT_ADMIN_PASSWORD
+          value: admin
+      - notExists:
+          path: stringData.ZOCKERZEIT_UNIFI_API_KEY
+
+  - it: skips the secret when an existing one is used
+    template: secret.yaml
+    set:
+      secret.existingSecret: my-secret
+    asserts:
+      - hasDocuments:
+          count: 0

@@ -1,0 +1,14 @@
+/bin/
+/dist/
+cover.out
+*.out
+*.test
+*.tgz
+*.db
+*.db-shm
+*.db-wal
+config.yaml
+*.env
+.DS_Store
+.idea/
+.vscode/
