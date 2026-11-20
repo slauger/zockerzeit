@@ -107,6 +107,7 @@
 
   <footer class="tile-foot">
     <code class="mac">{{.MAC}}</code>
+    {{if not .New}}<a class="tile-link" href="/geraet/{{.MAC}}">Steuern</a>{{end}}
     {{if not .New}}<button class="link danger-text" formaction="/geraete/{{.MAC}}/loeschen" onclick="return confirm('{{.Name}} nicht mehr verwalten? Das Gerät wird entsperrt.')">Entfernen</button>{{end}}
     <button class="{{if .New}}primary{{end}}">{{if .New}}Hinzufügen{{else}}Speichern{{end}}</button>
   </footer>

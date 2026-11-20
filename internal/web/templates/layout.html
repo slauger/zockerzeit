@@ -17,7 +17,7 @@
     <a href="/" {{if eq .Nav "dashboard"}}aria-current="page"{{end}}>Übersicht</a>
     <a href="/verlauf" {{if eq .Nav "verlauf"}}aria-current="page"{{end}}>Verlauf</a>
     <a href="/regeln" {{if eq .Nav "regeln"}}aria-current="page"{{end}}>Regeln</a>
-    <a href="/geraete" {{if eq .Nav "geraete"}}aria-current="page"{{end}}>Geräte</a>
+    <a href="/geraete" {{if or (eq .Nav "geraete") (eq .Nav "geraet")}}aria-current="page"{{end}}>Geräte</a>
     <a href="/protokoll" {{if eq .Nav "protokoll"}}aria-current="page"{{end}}>Protokoll</a>
   </nav>
   {{if .Auth}}<form method="post" action="/logout" class="logout"><button class="link">Abmelden</button></form>{{end}}

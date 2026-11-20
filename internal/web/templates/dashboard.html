@@ -52,11 +52,11 @@
   {{if .Devices}}
   <ul class="chips">
     {{range .Devices}}
-    <li class="chip {{if .Blocked}}blocked{{else if .Active}}active{{else if .Online}}online{{else}}offline{{end}}">
+    <li><a href="/geraet/{{.Device.MAC}}" class="chip {{if .Blocked}}blocked{{else if .Active}}active{{else if .Online}}online{{else}}offline{{end}}">
       <span class="dot" aria-hidden="true"></span>
       <span class="chip-name">{{.Device.Name}}</span>
       <span class="chip-state">{{if .Blocked}}gesperrt{{else if .Active}}spielt{{if .APName}}, {{.APName}}{{end}}{{else if .Online}}online{{if .APName}}, {{.APName}}{{end}}{{else}}aus{{end}}{{if ne .AttributedTo $p.ID}}, für {{.AttributedTo}}{{end}}</span>
-    </li>
+    </a></li>
     {{end}}
   </ul>
   {{end}}
@@ -94,43 +94,6 @@
 {{end}}
 </div>
 
-{{if .Devices}}
-<div class="tools">
-  {{if .Shared}}
-  <section class="tool">
-    <h2>Konsole für jemand anderen freigeben</h2>
-    <p class="muted">Die Zeit zählt dann für die gewählte Person, nicht für den Besitzer.</p>
-    <form method="post" action="/aktion" class="inline-form">
-      <input type="hidden" name="action" value="release">
-      <label>Gerät
-        <select name="device">{{range .Shared}}<option value="{{.MAC}}">{{.Name}}</option>{{end}}</select>
-      </label>
-      <label>Für
-        <select name="profile">{{range .Profiles}}<option value="{{.ID}}">{{.Name}}</option>{{end}}</select>
-      </label>
-      <label>Minuten
-        <input type="number" name="minutes" value="30" min="5" max="600" step="5">
-      </label>
-      <button class="primary">Freigeben</button>
-    </form>
-  </section>
-  {{end}}
-  <section class="tool">
-    <h2>Einzelnes Gerät sperren</h2>
-    <p class="muted">Sperrt nur dieses Gerät, die anderen bleiben, wie sie sind.</p>
-    <form method="post" action="/aktion" class="inline-form">
-      <input type="hidden" name="action" value="lockdevice">
-      <label>Gerät
-        <select name="device">{{range .Devices}}<option value="{{.MAC}}">{{.Name}}</option>{{end}}</select>
-      </label>
-      <label>Minuten, 0 bis morgen
-        <input type="number" name="minutes" value="60" min="0" max="1440" step="5">
-      </label>
-      <button class="danger">Sperren</button>
-    </form>
-  </section>
-</div>
-{{end}}
 {{end}}
 {{end}}
 

@@ -58,6 +58,7 @@ func (s *Server) statusAPI(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) action(w http.ResponseWriter, r *http.Request) {
 	now := s.engine.Now()
+	back := backTarget(r)
 	kind := r.FormValue("action")
 	profileID := r.FormValue("profile")
 	mac := r.FormValue("device")
@@ -97,41 +98,50 @@ func (s *Server) action(w http.ResponseWriter, r *http.Request) {
 		}
 		msg = fmt.Sprintf("%s gesperrt bis %s", s.deviceName(mac), o.Until.Format("02.01. 15:04"))
 	default:
-		redirectErr(w, r, "/", errors.New("unbekannte Aktion"))
+		redirectErr(w, r, back, errors.New("unbekannte Aktion"))
 		return
 	}
 	if o.ProfileID == "" || (o.Kind != store.KindLock && o.Kind != store.KindBonus && minutes <= 0) || (o.Kind == store.KindBonus && minutes == 0) {
-		redirectErr(w, r, "/", errors.New("bitte Profil und Minuten angeben"))
+		redirectErr(w, r, back, errors.New("bitte Profil und Minuten angeben"))
 		return
 	}
 	if (kind == "release" || kind == "lockdevice") && mac == "" {
-		redirectErr(w, r, "/", errors.New("bitte ein Gerät wählen"))
+		redirectErr(w, r, back, errors.New("bitte ein Gerät wählen"))
 		return
 	}
 	o.Note = msg
 	if _, err := s.store.AddOverride(o); err != nil {
-		redirectErr(w, r, "/", err)
+		redirectErr(w, r, back, err)
 		return
 	}
 	_ = s.store.AddEvent(store.Event{TS: now, ProfileID: o.ProfileID, DeviceMAC: o.DeviceMAC, Kind: "parent", Message: msg})
 	s.applyNow(r)
-	redirect(w, r, "/", msg)
+	redirect(w, r, back, msg)
 }
 
 func (s *Server) endOverride(w http.ResponseWriter, r *http.Request) {
+	back := backTarget(r)
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
-		redirectErr(w, r, "/", err)
+		redirectErr(w, r, back, err)
 		return
 	}
 	now := s.engine.Now()
 	if err := s.store.EndOverride(id, now); err != nil {
-		redirectErr(w, r, "/", errors.New("Ausnahme nicht gefunden oder schon abgelaufen"))
+		redirectErr(w, r, back, errors.New("Ausnahme nicht gefunden oder schon abgelaufen"))
 		return
 	}
 	_ = s.store.AddEvent(store.Event{TS: now, Kind: "parent", Message: "Ausnahme vorzeitig beendet"})
 	s.applyNow(r)
-	redirect(w, r, "/", "Ausnahme beendet")
+	redirect(w, r, back, "Ausnahme beendet")
+}
+
+// backTarget returns the local page a form wants to return to.
+func backTarget(r *http.Request) string {
+	if b := r.FormValue("back"); strings.HasPrefix(b, "/") && !strings.HasPrefix(b, "//") {
+		return b
+	}
+	return "/"
 }
 
 // applyNow runs a poll right away so that parent decisions take effect
@@ -186,6 +196,8 @@ type rulesData struct {
 	Profiles []store.Profile
 	Types    []deviceTypeInfo
 	Weekdays []time.Weekday
+	// HasPhone tells which profiles have a phone assigned.
+	HasPhone map[string]bool
 }
 
 // newProfileTemplate is the starting point offered for a new profile.
@@ -213,8 +225,15 @@ func (s *Server) rulesPage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	hasPhone := map[string]bool{}
+	devices, _ := s.store.Devices()
+	for _, d := range devices {
+		if d.Type() == store.TypePhone {
+			hasPhone[d.ProfileID] = true
+		}
+	}
 	profiles = append(profiles, newProfileTemplate())
-	s.render(w, r, "regeln", "Regeln", rulesData{Profiles: profiles, Types: deviceTypeInfos, Weekdays: rules.Weekdays})
+	s.render(w, r, "regeln", "Regeln", rulesData{Profiles: profiles, Types: deviceTypeInfos, Weekdays: rules.Weekdays, HasPhone: hasPhone})
 }
 
 // parseRuleSet reads the limits and windows of one device type from the form.
@@ -598,4 +617,74 @@ func modeForType(deviceType, mode string) string {
 		return store.ModeOnline
 	}
 	return mode
+}
+
+// --- device detail -----------------------------------------------------
+
+type deviceDetailData struct {
+	Device    store.Device
+	State     engine.DeviceState
+	Owner     store.Profile
+	Others    []store.Profile
+	Overrides []store.Override
+	Sessions  []stats.Session
+	Today     time.Duration
+}
+
+func (s *Server) deviceDetail(w http.ResponseWriter, r *http.Request) {
+	mac := unifi.NormalizeMAC(r.PathValue("mac"))
+	devices, err := s.store.Devices()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	var data deviceDetailData
+	found := false
+	for _, d := range devices {
+		if d.MAC == mac {
+			data.Device, found = d, true
+		}
+	}
+	if !found {
+		http.NotFound(w, r)
+		return
+	}
+	profiles, _ := s.store.Profiles()
+	for _, p := range profiles {
+		if p.ID == data.Device.ProfileID {
+			data.Owner = p
+		} else {
+			data.Others = append(data.Others, p)
+		}
+	}
+	for _, v := range s.engine.Snapshot().Profiles {
+		for _, ds := range v.Devices {
+			if ds.Device.MAC == mac {
+				data.State = ds
+			}
+		}
+	}
+	now := s.engine.Now()
+	ovs, _ := s.store.ActiveOverrides(now, s.engine.Location())
+	for _, o := range ovs {
+		if o.DeviceMAC == mac {
+			data.Overrides = append(data.Overrides, o)
+		}
+	}
+	samples, err := s.store.Samples("", rules.StartOfDay(now), now.Add(time.Minute), s.engine.Location())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	var mine []store.Sample
+	for _, sm := range samples {
+		if sm.MAC == mac {
+			mine = append(mine, sm)
+			if sm.Active {
+				data.Today += time.Duration(sm.Seconds) * time.Second
+			}
+		}
+	}
+	data.Sessions = stats.Sessions(mine, map[string]string{mac: data.Device.Name}, 3*time.Minute)
+	s.render(w, r, "geraet", data.Device.Name, data)
 }

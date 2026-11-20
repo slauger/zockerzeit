@@ -75,20 +75,24 @@ func (e *env) post(path string, form url.Values) (int, string) {
 func TestPagesRender(t *testing.T) {
 	e := newEnv(t, "")
 	for path, want := range map[string]string{
-		"/":          "Konsole für jemand anderen freigeben",
-		"/verlauf":   "Spielzeit pro Tag",
-		"/regeln":    "Neues Profil",
-		"/geraete":   "Switch Kinderzimmer",
-		"/protokoll": "Protokoll",
-		"/kind/max":  "Hallo Max!",
-		"/login":     "Passwort",
-		"/healthz":   "ok",
-		"/readyz":    "ok",
+		"/":                         "Mehr Zeit",
+		"/geraet/98:b6:e9:00:00:01": "Für Lea freigeben",
+		"/verlauf":                  "Spielzeit pro Tag",
+		"/regeln":                   "Neues Profil",
+		"/geraete":                  "Switch Kinderzimmer",
+		"/protokoll":                "Protokoll",
+		"/kind/max":                 "Hallo Max!",
+		"/login":                    "Passwort",
+		"/healthz":                  "ok",
+		"/readyz":                   "ok",
 	} {
 		code, body := e.get(path)
 		if code != http.StatusOK || !strings.Contains(body, want) {
 			t.Errorf("%s: status %d, missing %q", path, code, want)
 		}
+	}
+	if code, _ := e.get("/geraet/00:00:00:00:00:00"); code != http.StatusNotFound {
+		t.Errorf("unknown device: %d", code)
 	}
 	if code, _ := e.get("/kind/niemand"); code != http.StatusNotFound {
 		t.Errorf("unknown kid: %d", code)
@@ -163,6 +167,29 @@ func TestWrongPasswordAndForgedCookie(t *testing.T) {
 
 func TestActions(t *testing.T) {
 	e := newEnv(t, "")
+	e.client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	resp, err := e.client.PostForm(e.srv.URL+"/aktion", url.Values{"action": {"lockdevice"}, "device": {"3a:10:5f:00:00:04"}, "minutes": {"30"}, "back": {"/geraet/3a:10:5f:00:00:04"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if loc := resp.Header.Get("Location"); !strings.HasPrefix(loc, "/geraet/3a:10:5f:00:00:04?ok=") {
+		t.Fatalf("expected redirect back to the device page, got %q", loc)
+	}
+	if err := e.store.EndOverride(1, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	for _, back := range []string{"//evil.example", "https://evil.example"} {
+		resp, err := e.client.PostForm(e.srv.URL+"/aktion", url.Values{"action": {"nope"}, "back": {back}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		if loc := resp.Header.Get("Location"); !strings.HasPrefix(loc, "/?") {
+			t.Fatalf("open redirect to %q", loc)
+		}
+	}
+	e.client.CheckRedirect = nil
 	cases := []url.Values{
 		{"action": {"bonus"}, "profile": {"max"}, "minutes": {"15"}},
 		{"action": {"allow"}, "profile": {"max"}, "minutes": {"30"}},

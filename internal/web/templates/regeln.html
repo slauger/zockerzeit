@@ -23,6 +23,8 @@
     {{range $d.Types}}
     {{$t := .Key}}
     {{$rs := $p.Rules $t}}
+    {{$collapsed := and (eq $t "phone") (not (index $d.HasPhone $p.ID))}}
+    {{if $collapsed}}<details class="ruleset-optional"><summary><span class="summary-title">Handy</span> <span class="muted">{{if $p.ID}}kein Handy zugeordnet, Regeln trotzdem bearbeiten{{else}}Regeln fürs Handy festlegen{{end}}</span></summary>{{end}}
     <fieldset class="ruleset" data-type="{{$t}}">
       <legend>{{.Label}}</legend>
       <p class="muted">{{.Hint}}</p>
@@ -52,6 +54,7 @@
       </div>
       <button type="button" class="link copy-weekdays">Montag auf Dienstag bis Freitag übertragen</button>
     </fieldset>
+    {{if $collapsed}}</details>{{end}}
     {{end}}
   </div>
 

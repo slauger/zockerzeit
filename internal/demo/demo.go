@@ -32,7 +32,7 @@ func NewController() *Controller {
 		{MAC: "98:b6:e9:00:00:01", Hostname: "Nintendo-Switch", APMAC: aps[0].MAC, ESSID: "Kids"},
 		{MAC: "98:b6:e9:00:00:02", Hostname: "Nintendo-Switch", APMAC: aps[1].MAC, ESSID: "Kids"},
 		{MAC: "3a:10:5f:00:00:03", Hostname: "iPhone", APMAC: aps[0].MAC, ESSID: "Kids"},
-		{MAC: "3a:10:5f:00:00:04", Hostname: "iPad", APMAC: aps[1].MAC, ESSID: "Kids"},
+		{MAC: "3a:10:5f:00:00:04", Hostname: "Nintendo-Switch-Lite", APMAC: aps[1].MAC, ESSID: "Kids"},
 		{MAC: "d8:3a:dd:00:00:05", Hostname: "Fernseher", APMAC: aps[1].MAC, ESSID: "Zuhause"},
 	} {
 		c.stations[s.MAC] = s
@@ -122,7 +122,7 @@ func Seed(st *store.Store, now time.Time) error {
 		{MAC: "98:b6:e9:00:00:01", Name: "Switch Kinderzimmer", ProfileID: "max", Shared: true, Mode: store.ModeOnline},
 		{MAC: "98:b6:e9:00:00:02", Name: "Switch Wohnzimmer", ProfileID: "max", Shared: true, Mode: store.ModeOnline},
 		{MAC: "3a:10:5f:00:00:03", Name: "iPhone Max", ProfileID: "max", Mode: store.ModeTraffic},
-		{MAC: "3a:10:5f:00:00:04", Name: "iPad Lea", ProfileID: "lea", Mode: store.ModeTraffic},
+		{MAC: "3a:10:5f:00:00:04", Name: "Switch Lite Lea", ProfileID: "lea", Mode: store.ModeOnline},
 	}
 	for _, d := range devices {
 		if err := st.SaveDevice(d); err != nil {

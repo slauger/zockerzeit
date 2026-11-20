@@ -75,7 +75,7 @@ func New(st *store.Store, eng Engine, opts Options, log *slog.Logger) (*Server, 
 			return nil, err
 		}
 	}
-	for _, page := range []string{"dashboard", "verlauf", "regeln", "geraete", "protokoll", "login", "kind"} {
+	for _, page := range []string{"dashboard", "verlauf", "regeln", "geraete", "geraet", "protokoll", "login", "kind"} {
 		t, err := template.New(page).Funcs(funcs(eng.Location())).ParseFS(templateFS, "templates/layout.html", "templates/"+page+".html")
 		if err != nil {
 			return nil, fmt.Errorf("template %s: %w", page, err)
@@ -106,6 +106,7 @@ func (s *Server) routes() {
 	m.Handle("GET /geraete", s.auth(s.devicesPage))
 	m.Handle("POST /geraete", s.auth(s.saveDevice))
 	m.Handle("POST /geraete/{mac}/loeschen", s.auth(s.deleteDevice))
+	m.Handle("GET /geraet/{mac}", s.auth(s.deviceDetail))
 	m.Handle("GET /protokoll", s.auth(s.eventsPage))
 	m.Handle("POST /aktion", s.auth(s.action))
 	m.Handle("POST /aktion/{id}/beenden", s.auth(s.endOverride))
@@ -268,6 +269,15 @@ func funcs(loc *time.Location) template.FuncMap {
 		"cells":       energyCells,
 		"slots":       slots,
 		"deviceTypes": func() []string { return store.DeviceTypes },
+		"list":        func(v ...int) []int { return v },
+		"sub":         func(a, b time.Time) time.Duration { return a.Sub(b) },
+		"dayPct": func(t time.Time) float64 {
+			t = t.In(loc)
+			return float64(t.Hour()*60+t.Minute()) / 1440 * 100
+		},
+		"spanPct": func(a, b time.Time) float64 {
+			return max(b.Sub(a).Minutes()/1440*100, 0.4)
+		},
 		"dict": func(kv ...any) map[string]any {
 			m := make(map[string]any, len(kv)/2)
 			for i := 0; i+1 < len(kv); i += 2 {
