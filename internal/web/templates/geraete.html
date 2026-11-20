@@ -1,78 +1,114 @@
 {{define "content"}}
-{{with .Data}}
-<h1>Geräte</h1>
-{{if not .Profiles}}<div class="banner warn">Lege zuerst unter <a href="/regeln">Regeln</a> ein Profil an.</div>{{end}}
+{{$d := .Data}}
+<div class="page-head">
+  <h1>Geräte</h1>
+</div>
+<p class="lead">Zockerzeit sperrt nur Geräte, die hier einem Kind zugeordnet sind. Alles andere im WLAN bleibt unberührt.</p>
 
-<section class="card">
-  <h2>Verwaltete Geräte</h2>
-  {{if not .Devices}}<p class="muted">Noch keine Geräte. Unten aus den Geräten im WLAN auswählen.</p>{{end}}
-  {{range .Devices}}
-  {{$d := .}}
-  {{$st := index $.Data.States .MAC}}
-  <form method="post" action="/geraete" class="device-form">
-    <input type="hidden" name="mac" value="{{.MAC}}">
-    <span class="dot {{if $st.Blocked}}blocked{{else if $st.Active}}active{{else if $st.Online}}online{{end}}" title="{{if $st.Blocked}}gesperrt{{else if $st.Online}}online{{else}}offline{{end}}"></span>
-    <label class="grow">Name <input name="name" value="{{.Name}}"></label>
-    <label>Profil
-      <select name="profile">{{range $.Data.Profiles}}<option value="{{.ID}}" {{if eq .ID $d.ProfileID}}selected{{end}}>{{.Name}}</option>{{end}}</select>
-    </label>
-    <label>Typ
-      <select name="mode">
-        <option value="online" {{if eq .Mode "online"}}selected{{end}}>Konsole</option>
-        <option value="traffic" {{if eq .Mode "traffic"}}selected{{end}}>Handy</option>
-      </select>
-    </label>
-    <label class="check"><input type="checkbox" name="shared" {{if .Shared}}checked{{end}}> gemeinsam genutzt</label>
-    <code class="mac">{{.MAC}}</code>
-    <button class="primary">Speichern</button>
-    <button class="link danger-text" formaction="/geraete/{{.MAC}}/loeschen" onclick="return confirm('{{.Name}} nicht mehr verwalten? Das Gerät wird entsperrt.')">Entfernen</button>
-  </form>
+{{if not $d.Profiles}}<div class="banner warn">Leg zuerst unter <a href="/regeln">Regeln</a> ein Profil an.</div>{{end}}
+
+{{range $d.Groups}}
+{{$g := .}}
+<section class="device-group" style="--player: var(--series-{{if eq .Index 0}}1{{else if eq .Index 1}}2{{else}}3{{end}})">
+  <header class="group-head">
+    <span class="avatar small" aria-hidden="true">{{initial .Profile.Name}}</span>
+    <h2>{{.Profile.Name}}</h2>
+    <span class="muted">{{len .Devices}} {{if eq (len .Devices) 1}}Gerät{{else}}Geräte{{end}}</span>
+  </header>
+  {{if .Devices}}
+  <div class="tiles">
+    {{range .Devices}}
+    {{$st := index $d.States .MAC}}
+    {{template "tile" (dict "MAC" .MAC "Name" .Name "ProfileID" .ProfileID "Type" .Type "Shared" .Shared "State" $st "Profiles" $d.Profiles "New" false)}}
+    {{end}}
+  </div>
+  {{else}}
+  <p class="muted">Noch keine Geräte. Unten aus den Geräten im WLAN auswählen.</p>
   {{end}}
-</section>
-
-<section class="card">
-  <h2>Gerade im WLAN</h2>
-  <p class="muted">Alle verbundenen Geräte, die noch nicht verwaltet werden. Wichtig: Beim iPhone in den WLAN-Einstellungen „Private WLAN-Adresse“ auf <em>fest</em> stellen, sonst ändert sich die MAC-Adresse.</p>
-  {{if not .Seen}}<p class="muted">Keine (oder die letzte Abfrage ist fehlgeschlagen).</p>{{end}}
-  {{range .Seen}}
-  <form method="post" action="/geraete" class="device-form">
-    <input type="hidden" name="mac" value="{{.MAC}}">
-    <label class="grow">Name <input name="name" value="{{.Name}}"></label>
-    <label>Profil
-      <select name="profile">{{range $.Data.Profiles}}<option value="{{.ID}}">{{.Name}}</option>{{end}}</select>
-    </label>
-    <label>Typ
-      <select name="mode">
-        <option value="online">Konsole</option>
-        <option value="traffic">Handy</option>
-      </select>
-    </label>
-    <label class="check"><input type="checkbox" name="shared"> gemeinsam genutzt</label>
-    <span class="muted small">{{.APName}}{{if .ESSID}} · {{.ESSID}}{{end}}</span>
-    <code class="mac">{{.MAC}}</code>
-    <button>Hinzufügen</button>
-  </form>
-  {{end}}
-</section>
-
-<section class="card">
-  <h2>Per MAC-Adresse hinzufügen</h2>
-  <p class="muted">Für Geräte, die gerade offline sind. Die MAC-Adresse der Switch steht unter Systemeinstellungen → Internet.</p>
-  <form method="post" action="/geraete" class="device-form">
-    <label>MAC <input name="mac" placeholder="aa:bb:cc:dd:ee:ff" required></label>
-    <label class="grow">Name <input name="name" placeholder="Switch Kinderzimmer"></label>
-    <label>Profil
-      <select name="profile">{{range .Profiles}}<option value="{{.ID}}">{{.Name}}</option>{{end}}</select>
-    </label>
-    <label>Typ
-      <select name="mode">
-        <option value="online">Konsole</option>
-        <option value="traffic">Handy</option>
-      </select>
-    </label>
-    <label class="check"><input type="checkbox" name="shared"> gemeinsam genutzt</label>
-    <button>Hinzufügen</button>
-  </form>
 </section>
 {{end}}
+
+{{if $d.Profiles}}
+<section class="device-group">
+  <header class="group-head">
+    <h2>Gerade im WLAN</h2>
+    <span class="muted">noch nicht zugeordnet</span>
+  </header>
+  <p class="muted hint">Beim iPhone in den WLAN-Einstellungen „Private WLAN-Adresse“ auf <strong>fest</strong> stellen, sonst ändert sich die Adresse und die Sperre greift nicht mehr.</p>
+  {{if $d.Seen}}
+  <div class="tiles">
+    {{range $d.Seen}}
+    {{template "tile" (dict "MAC" .MAC "Name" .Name "ProfileID" "" "Type" .Type "Shared" false "AP" .APName "ESSID" .ESSID "Profiles" $d.Profiles "New" true)}}
+    {{end}}
+  </div>
+  {{else}}
+  <p class="muted">Gerade nichts Neues im WLAN, oder die letzte Abfrage ist fehlgeschlagen.</p>
+  {{end}}
+
+  <details class="manual">
+    <summary>Gerät per MAC-Adresse hinzufügen</summary>
+    <p class="muted">Für Geräte, die gerade aus sind. Bei der Switch steht die Adresse unter Systemeinstellungen, Internet.</p>
+    <form method="post" action="/geraete" class="inline-form">
+      <label>MAC-Adresse <input name="mac" placeholder="aa:bb:cc:dd:ee:ff" required></label>
+      <label>Name <input name="name" placeholder="Switch Kinderzimmer"></label>
+      <label>Gehört
+        <select name="profile">{{range $d.Profiles}}<option value="{{.ID}}">{{.Name}}</option>{{end}}</select>
+      </label>
+      <label>Typ
+        <select name="type"><option value="console">Konsole</option><option value="phone">Handy</option></select>
+      </label>
+      <button class="primary">Hinzufügen</button>
+    </form>
+  </details>
+</section>
+{{end}}
+{{end}}
+
+{{define "tile"}}
+<form method="post" action="/geraete" class="device-tile{{if .New}} is-new{{end}}">
+  <input type="hidden" name="mac" value="{{.MAC}}">
+  <header class="tile-head">
+    <span class="type-icon" aria-hidden="true">
+      {{if eq .Type "phone"}}
+      <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M10.5 18.5h3"/></svg>
+      {{else}}
+      <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="11" rx="5.5"/><path d="M7 11v3M5.5 12.5h3"/><circle cx="15.5" cy="11.5" r="0.6" fill="currentColor"/><circle cx="18" cy="13.5" r="0.6" fill="currentColor"/></svg>
+      {{end}}
+    </span>
+    <div class="tile-title">
+      <input class="tile-name" name="name" value="{{.Name}}" aria-label="Name des Geräts">
+      {{if .New}}
+        <p class="tile-status"><span class="dot online"></span>im WLAN{{if .AP}}, {{.AP}}{{end}}</p>
+      {{else}}{{with .State}}
+        <p class="tile-status"><span class="dot {{if .Blocked}}blocked{{else if .Active}}active{{else if .Online}}online{{end}}"></span>{{if .Blocked}}gesperrt{{else if .Active}}spielt gerade{{else if .Online}}online{{else}}aus{{end}}{{if and .Online .APName}}, {{.APName}}{{end}}</p>
+      {{else}}
+        <p class="tile-status"><span class="dot"></span>aus</p>
+      {{end}}{{end}}
+    </div>
+  </header>
+
+  <div class="tile-fields">
+    <label>Gehört
+      <select name="profile">{{$pid := .ProfileID}}{{range .Profiles}}<option value="{{.ID}}" {{if eq .ID $pid}}selected{{end}}>{{.Name}}</option>{{end}}</select>
+    </label>
+    <div class="field">
+      <span class="field-label">Typ</span>
+      <div class="segmented">
+        <label><input type="radio" name="type" value="console" {{if ne .Type "phone"}}checked{{end}}><span>Konsole</span></label>
+        <label><input type="radio" name="type" value="phone" {{if eq .Type "phone"}}checked{{end}}><span>Handy</span></label>
+      </div>
+    </div>
+  </div>
+  <label class="switch">
+    <input type="checkbox" name="shared" role="switch" {{if .Shared}}checked{{end}}>
+    <span class="switch-track" aria-hidden="true"></span>
+    <span>Auch von Geschwistern genutzt</span>
+  </label>
+
+  <footer class="tile-foot">
+    <code class="mac">{{.MAC}}</code>
+    {{if not .New}}<button class="link danger-text" formaction="/geraete/{{.MAC}}/loeschen" onclick="return confirm('{{.Name}} nicht mehr verwalten? Das Gerät wird entsperrt.')">Entfernen</button>{{end}}
+    <button class="{{if .New}}primary{{end}}">{{if .New}}Hinzufügen{{else}}Speichern{{end}}</button>
+  </footer>
+</form>
 {{end}}

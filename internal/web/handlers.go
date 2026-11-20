@@ -322,11 +322,33 @@ func slugify(name string) string {
 
 // --- devices ------------------------------------------------------------
 
+type deviceGroup struct {
+	Index   int
+	Profile store.Profile
+	Devices []store.Device
+}
+
+type seenDevice struct {
+	engine.SeenClient
+	Type string
+}
+
 type devicesData struct {
-	Devices  []store.Device
+	Groups   []deviceGroup
 	Profiles []store.Profile
-	Seen     []engine.SeenClient
+	Seen     []seenDevice
 	States   map[string]engine.DeviceState
+}
+
+// guessType suggests a device type from the hostname reported by UniFi.
+func guessType(name string) string {
+	n := strings.ToLower(name)
+	for _, hint := range []string{"iphone", "ipad", "android", "pixel", "galaxy", "phone", "xiaomi", "redmi"} {
+		if strings.Contains(n, hint) {
+			return store.TypePhone
+		}
+	}
+	return store.TypeConsole
 }
 
 func (s *Server) devicesPage(w http.ResponseWriter, r *http.Request) {
@@ -343,13 +365,23 @@ func (s *Server) devicesPage(w http.ResponseWriter, r *http.Request) {
 			states[d.Device.MAC] = d
 		}
 	}
-	var seen []engine.SeenClient
+	var seen []seenDevice
 	for _, c := range snap.Seen {
 		if !c.Managed {
-			seen = append(seen, c)
+			seen = append(seen, seenDevice{SeenClient: c, Type: guessType(c.Name)})
 		}
 	}
-	s.render(w, r, "geraete", "Geräte", devicesData{Devices: devices, Profiles: profiles, Seen: seen, States: states})
+	groups := make([]deviceGroup, 0, len(profiles))
+	for i, p := range profiles {
+		g := deviceGroup{Index: i, Profile: p}
+		for _, d := range devices {
+			if d.ProfileID == p.ID {
+				g.Devices = append(g.Devices, d)
+			}
+		}
+		groups = append(groups, g)
+	}
+	s.render(w, r, "geraete", "Geräte", devicesData{Groups: groups, Profiles: profiles, Seen: seen, States: states})
 }
 
 func (s *Server) saveDevice(w http.ResponseWriter, r *http.Request) {
@@ -358,7 +390,7 @@ func (s *Server) saveDevice(w http.ResponseWriter, r *http.Request) {
 		Name:      strings.TrimSpace(r.FormValue("name")),
 		ProfileID: r.FormValue("profile"),
 		Shared:    r.FormValue("shared") == "on",
-		Mode:      r.FormValue("mode"),
+		Mode:      modeForType(r.FormValue("type"), r.FormValue("mode")),
 	}
 	if !validMAC(d.MAC) {
 		redirectErr(w, r, "/geraete", fmt.Errorf("ungültige MAC-Adresse %q", d.MAC))
@@ -555,4 +587,15 @@ func kidStatus(st rules.Status) map[string]any {
 		"limit":     st.LimitToday,
 		"remaining": int(st.Remaining.Minutes()),
 	}
+}
+
+// modeForType maps the device type chosen in the UI to its tracking mode.
+func modeForType(deviceType, mode string) string {
+	switch deviceType {
+	case store.TypePhone:
+		return store.ModeTraffic
+	case store.TypeConsole:
+		return store.ModeOnline
+	}
+	return mode
 }

@@ -268,8 +268,15 @@ func funcs(loc *time.Location) template.FuncMap {
 		"cells":       energyCells,
 		"slots":       slots,
 		"deviceTypes": func() []string { return store.DeviceTypes },
-		"typeLabel":   func(t string) string { return engine.TypeLabels[t] },
-		"minutes":     func(m int) time.Duration { return time.Duration(m) * time.Minute },
+		"dict": func(kv ...any) map[string]any {
+			m := make(map[string]any, len(kv)/2)
+			for i := 0; i+1 < len(kv); i += 2 {
+				m[fmt.Sprint(kv[i])] = kv[i+1]
+			}
+			return m
+		},
+		"typeLabel": func(t string) string { return engine.TypeLabels[t] },
+		"minutes":   func(m int) time.Duration { return time.Duration(m) * time.Minute },
 		"initial": func(name string) string {
 			for _, r := range name {
 				return strings.ToUpper(string(r))
