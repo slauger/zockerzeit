@@ -712,3 +712,45 @@ func filterType(samples []store.Sample, deviceType string) []store.Sample {
 	}
 	return out
 }
+
+// kidManifest makes the kid view installable as an app of its own per kid.
+func (s *Server) kidManifest(w http.ResponseWriter, r *http.Request) {
+	p, err := s.store.Profile(r.PathValue("id"))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	start := "/kind/" + p.ID
+	w.Header().Set("Content-Type", "application/manifest+json")
+	writeJSONBody(w, map[string]any{
+		"id":               start,
+		"name":             "Zockerzeit " + p.Name,
+		"short_name":       "Zockerzeit",
+		"description":      "Wie viel Zockerzeit " + p.Name + " heute noch hat",
+		"lang":             "de",
+		"start_url":        start,
+		"scope":            start,
+		"display":          "standalone",
+		"orientation":      "portrait",
+		"background_color": "#17152b",
+		"theme_color":      "#17152b",
+		"icons": []map[string]string{
+			{"src": "/static/icons/icon-192.png", "sizes": "192x192", "type": "image/png"},
+			{"src": "/static/icons/icon-512.png", "sizes": "512x512", "type": "image/png"},
+			{"src": "/static/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
+		},
+	})
+}
+
+// kidServiceWorker serves the service worker from /kind/ so it may control
+// all kid apps.
+func (s *Server) kidServiceWorker(w http.ResponseWriter, r *http.Request) {
+	b, err := staticFS.ReadFile("static/kid-sw.js")
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	_, _ = w.Write(b)
+}

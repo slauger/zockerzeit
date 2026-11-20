@@ -55,7 +55,7 @@ func TestProfilesAndDevices(t *testing.T) {
 	if err := s.SaveProfile(p); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SaveProfile(Profile{ID: "lea", Name: "Lea"}); err != nil {
+	if err := s.SaveProfile(Profile{ID: "mia", Name: "Mia"}); err != nil {
 		t.Fatal(err)
 	}
 	p.Console.DailyMinutes = 60
@@ -73,7 +73,7 @@ func TestProfilesAndDevices(t *testing.T) {
 		t.Fatalf("rules mismatch: %+v", got)
 	}
 	all, _ := s.Profiles()
-	if len(all) != 2 || all[0].ID != "lea" {
+	if len(all) != 2 || all[0].ID != "max" {
 		t.Fatalf("unexpected profiles: %+v", all)
 	}
 	if _, err := s.Profile("nope"); !errors.Is(err, ErrNotFound) {
@@ -113,7 +113,7 @@ func TestUsageCountsParallelMinutesOnce(t *testing.T) {
 			Sample{TS: ts, MAC: "switch", ProfileID: "max", Seconds: 60, Active: true, APName: "AP Wohnzimmer"},
 			Sample{TS: ts, MAC: "switch3", ProfileID: "max", Seconds: 60, Active: i < 5},
 			Sample{TS: ts, MAC: "iphone", ProfileID: "max", Type: TypePhone, Seconds: 60, Active: i < 3},
-			Sample{TS: ts, MAC: "switch2", ProfileID: "lea", Seconds: 60, Active: true},
+			Sample{TS: ts, MAC: "switch2", ProfileID: "mia", Seconds: 60, Active: true},
 		)
 	}
 	if err := s.AddSamples(samples); err != nil {
@@ -162,7 +162,7 @@ func TestOverrides(t *testing.T) {
 	if _, err := s.AddOverride(Override{Kind: KindBonus, ProfileID: "max", Minutes: 30, StartsAt: now.Add(-2 * time.Hour), Until: now.Add(-time.Hour)}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.AddOverride(Override{Kind: KindRelease, ProfileID: "lea", DeviceMAC: "aa", StartsAt: now.Add(time.Hour), Until: now.Add(2 * time.Hour)}); err != nil {
+	if _, err := s.AddOverride(Override{Kind: KindRelease, ProfileID: "mia", DeviceMAC: "aa", StartsAt: now.Add(time.Hour), Until: now.Add(2 * time.Hour)}); err != nil {
 		t.Fatal(err)
 	}
 	active, err := s.ActiveOverrides(now, time.UTC)

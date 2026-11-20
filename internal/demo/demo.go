@@ -109,7 +109,7 @@ func Seed(st *store.Store, now time.Time) error {
 			Phone:   store.RuleSet{DailyMinutes: 60, Schedule: daytime},
 		},
 		{
-			ID: "lea", Name: "Lea",
+			ID: "mia", Name: "Mia",
 			Console: store.RuleSet{DailyMinutes: 45, WeeklyMinutes: 240, Schedule: sched},
 			Phone:   store.RuleSet{Schedule: daytime},
 		},
@@ -122,7 +122,7 @@ func Seed(st *store.Store, now time.Time) error {
 		{MAC: "98:b6:e9:00:00:01", Name: "Switch Kinderzimmer", ProfileID: "max", Shared: true, Mode: store.ModeOnline},
 		{MAC: "98:b6:e9:00:00:02", Name: "Switch Wohnzimmer", ProfileID: "max", Shared: true, Mode: store.ModeOnline},
 		{MAC: "3a:10:5f:00:00:03", Name: "iPhone Max", ProfileID: "max", Mode: store.ModeTraffic},
-		{MAC: "3a:10:5f:00:00:04", Name: "Switch Lite Lea", ProfileID: "lea", Mode: store.ModeOnline},
+		{MAC: "3a:10:5f:00:00:04", Name: "Switch Lite Mia", ProfileID: "mia", Mode: store.ModeOnline},
 	}
 	for _, d := range devices {
 		if err := st.SaveDevice(d); err != nil {

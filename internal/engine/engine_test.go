@@ -118,7 +118,7 @@ func newHarness(t *testing.T, dryRun bool) *harness {
 		Console: store.RuleSet{DailyMinutes: 30, Schedule: sched},
 		Phone:   store.RuleSet{DailyMinutes: 60, Schedule: sched},
 	}))
-	must(t, st.SaveProfile(store.Profile{ID: "lea", Name: "Lea", Console: store.RuleSet{DailyMinutes: 60, Schedule: sched}}))
+	must(t, st.SaveProfile(store.Profile{ID: "mia", Name: "Mia", Console: store.RuleSet{DailyMinutes: 60, Schedule: sched}}))
 	must(t, st.SaveDevice(store.Device{MAC: "sw:01", Name: "Switch", ProfileID: "max", Shared: true, Mode: store.ModeOnline}))
 	must(t, st.SaveDevice(store.Device{MAC: "ip:01", Name: "iPhone", ProfileID: "max", Mode: store.ModeTraffic}))
 
@@ -240,7 +240,7 @@ func TestOutsideWindowBlocksAndAllowOverride(t *testing.T) {
 func TestReleaseForSiblingAndDeviceLock(t *testing.T) {
 	h := newHarness(t, false)
 	h.clock = time.Date(2026, 11, 18, 20, 0, 0, 0, berlin)
-	_, err := h.store.AddOverride(store.Override{Kind: store.KindRelease, ProfileID: "lea", DeviceMAC: "sw:01", StartsAt: h.clock, Until: h.clock.Add(time.Hour)})
+	_, err := h.store.AddOverride(store.Override{Kind: store.KindRelease, ProfileID: "mia", DeviceMAC: "sw:01", StartsAt: h.clock, Until: h.clock.Add(time.Hour)})
 	must(t, err)
 	for range 5 {
 		h.tick()
@@ -251,8 +251,8 @@ func TestReleaseForSiblingAndDeviceLock(t *testing.T) {
 	if !h.ctrl.blocked["ip:01"] {
 		t.Fatal("iPhone of max should still be blocked")
 	}
-	if u := h.profile("lea").Console.UsedToday; u != 5*time.Minute {
-		t.Fatalf("lea usage = %v, want 5m", u)
+	if u := h.profile("mia").Console.UsedToday; u != 5*time.Minute {
+		t.Fatalf("mia usage = %v, want 5m", u)
 	}
 	if u := h.profile("max").Console.UsedToday; u != 0 {
 		t.Fatalf("max usage = %v, want 0", u)

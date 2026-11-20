@@ -17,7 +17,7 @@ Zockerzeit ("gaming time") tracks and limits how long kids play by blocking thei
 - ⛔ **Automatic blocking** - devices are blocked and unblocked through the UniFi controller, nothing to install on the devices
 - 👆 **Parent controls** - one tap for bonus minutes, free play, a pause for an hour or until tomorrow
 - 👫 **Shared consoles** - release a sibling's console for 30 minutes, the time counts on the right budget
-- 🧒 **Kid view** - a read-only page with the remaining time, so nobody has to ask
+- 📱 **Kid app** - an installable app (PWA) per kid that shows the remaining time, so nobody has to ask
 - 🔔 **Push warnings** - optional ntfy notifications 10 and 5 minutes before the end
 - 🧪 **Test mode** - records and shows decisions without blocking anything (default)
 - 🏠 **Local only** - a single Go binary with SQLite, no cloud, no account, names and rules never leave your network
@@ -27,8 +27,8 @@ The web interface is in German.
 | Rules per device type | History |
 |---|---|
 | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/rules-dark.png"><img alt="Rules page with a 24 hour track per weekday for consoles and phones" src="docs/images/rules-light.png"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/history-dark.png"><img alt="History with play time per day and device and a timeline" src="docs/images/history-light.png"></picture> |
-| **Device page** | **Kid view** |
-| <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/device-dark.png"><img alt="Device page with lock and release actions and today's sessions" src="docs/images/device-light.png"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/kid-dark.png"><img alt="Kid view showing the remaining time in large type" src="docs/images/kid-light.png"></picture> |
+| **Devices** | **Kid app** |
+| <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/device-dark.png"><img alt="Device tiles grouped by kid with type toggle and live status" src="docs/images/device-light.png"></picture> | <img alt="Kid app showing the remaining time in large type" src="docs/images/kid-app.png" width="320"> |
 
 ## Architecture
 

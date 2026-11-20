@@ -96,6 +96,8 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /login", s.login)
 	m.HandleFunc("POST /logout", s.logout)
 	m.HandleFunc("GET /kind/{id}", s.kidPage)
+	m.HandleFunc("GET /kind/{id}/manifest.webmanifest", s.kidManifest)
+	m.HandleFunc("GET /kind/sw.js", s.kidServiceWorker)
 	m.HandleFunc("GET /api/kind/{id}", s.kidAPI)
 
 	m.Handle("GET /{$}", s.auth(s.dashboard))
@@ -239,6 +241,11 @@ func redirectErr(w http.ResponseWriter, r *http.Request, to string, err error) {
 
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
+	writeJSONBody(w, v)
+}
+
+// writeJSONBody encodes v without touching the content type.
+func writeJSONBody(w http.ResponseWriter, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 

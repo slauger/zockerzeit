@@ -75,16 +75,18 @@ func (e *env) post(path string, form url.Values) (int, string) {
 func TestPagesRender(t *testing.T) {
 	e := newEnv(t, "")
 	for path, want := range map[string]string{
-		"/":                         "Mehr Zeit",
-		"/geraet/98:b6:e9:00:00:01": "Für Lea freigeben",
-		"/verlauf":                  "Spielzeit pro Tag",
-		"/regeln":                   "Neues Profil",
-		"/geraete":                  "Switch Kinderzimmer",
-		"/protokoll":                "Protokoll",
-		"/kind/max":                 "Hallo Max!",
-		"/login":                    "Passwort",
-		"/healthz":                  "ok",
-		"/readyz":                   "ok",
+		"/":                              "Mehr Zeit",
+		"/geraet/98:b6:e9:00:00:01":      "Für Mia freigeben",
+		"/verlauf":                       "Spielzeit pro Tag",
+		"/regeln":                        "Neues Profil",
+		"/geraete":                       "Switch Kinderzimmer",
+		"/protokoll":                     "Protokoll",
+		"/kind/max":                      "Hallo Max!",
+		"/kind/max/manifest.webmanifest": `"start_url":"/kind/max"`,
+		"/kind/sw.js":                    "zockerzeit-kid-v1",
+		"/login":                         "Passwort",
+		"/healthz":                       "ok",
+		"/readyz":                        "ok",
 	} {
 		code, body := e.get(path)
 		if code != http.StatusOK || !strings.Contains(body, want) {
@@ -93,6 +95,9 @@ func TestPagesRender(t *testing.T) {
 	}
 	if code, _ := e.get("/geraet/00:00:00:00:00:00"); code != http.StatusNotFound {
 		t.Errorf("unknown device: %d", code)
+	}
+	if code, _ := e.get("/kind/niemand/manifest.webmanifest"); code != http.StatusNotFound {
+		t.Errorf("unknown kid manifest: %d", code)
 	}
 	if code, _ := e.get("/kind/niemand"); code != http.StatusNotFound {
 		t.Errorf("unknown kid: %d", code)
@@ -193,8 +198,8 @@ func TestActions(t *testing.T) {
 	cases := []url.Values{
 		{"action": {"bonus"}, "profile": {"max"}, "minutes": {"15"}},
 		{"action": {"allow"}, "profile": {"max"}, "minutes": {"30"}},
-		{"action": {"lock"}, "profile": {"lea"}, "minutes": {"0"}},
-		{"action": {"release"}, "profile": {"lea"}, "device": {"98:b6:e9:00:00:01"}, "minutes": {"30"}},
+		{"action": {"lock"}, "profile": {"mia"}, "minutes": {"0"}},
+		{"action": {"release"}, "profile": {"mia"}, "device": {"98:b6:e9:00:00:01"}, "minutes": {"30"}},
 		{"action": {"lockdevice"}, "device": {"3a:10:5f:00:00:03"}, "minutes": {"60"}},
 	}
 	for _, form := range cases {
@@ -216,8 +221,8 @@ func TestActions(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, p := range status.Profiles {
-		if p.Profile.ID == "lea" && p.Console.Allowed {
-			t.Fatal("lea should be locked")
+		if p.Profile.ID == "mia" && p.Console.Allowed {
+			t.Fatal("mia should be locked")
 		}
 		if p.Profile.ID == "max" && !p.Console.Allowed {
 			t.Fatal("max should be allowed")
@@ -238,7 +243,7 @@ func TestActions(t *testing.T) {
 	for _, bad := range []url.Values{
 		{"action": {"explode"}},
 		{"action": {"allow"}, "profile": {"max"}, "minutes": {"0"}},
-		{"action": {"release"}, "profile": {"lea"}, "minutes": {"10"}},
+		{"action": {"release"}, "profile": {"mia"}, "minutes": {"10"}},
 		{"action": {"bonus"}, "minutes": {"10"}},
 	} {
 		if _, body := e.post("/aktion", bad); !strings.Contains(body, "banner err") {
@@ -395,7 +400,7 @@ func TestEnergyCells(t *testing.T) {
 	if got := f["germanDate"].(func(time.Time) string)(time.Date(2026, 11, 20, 12, 0, 0, 0, berlin)); got != "Freitag, 20. November" {
 		t.Errorf("germanDate = %q", got)
 	}
-	if f["initial"].(func(string) string)("lea") != "L" || f["initial"].(func(string) string)("") != "?" {
+	if f["initial"].(func(string) string)("mia") != "M" || f["initial"].(func(string) string)("") != "?" {
 		t.Error("initial")
 	}
 	ql := f["quotaLeft"].(func(rules.Status) time.Duration)
