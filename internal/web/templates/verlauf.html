@@ -6,6 +6,13 @@
   <label>Profil
     <select name="profil" onchange="this.form.submit()">{{range .Profiles}}<option value="{{.ID}}" {{if eq .ID $.Data.Selected}}selected{{end}}>{{.Name}}</option>{{end}}</select>
   </label>
+  <label>Geräte
+    <select name="typ" onchange="this.form.submit()">
+      <option value="console" {{if eq .Type "console"}}selected{{end}}>Konsole</option>
+      <option value="phone" {{if eq .Type "phone"}}selected{{end}}>Handy</option>
+      <option value="alle" {{if eq .Type "alle"}}selected{{end}}>Alle</option>
+    </select>
+  </label>
   <label>Zeitraum
     <select name="tage" onchange="this.form.submit()">
       <option value="7" {{if eq .Days 7}}selected{{end}}>7 Tage</option>
@@ -19,10 +26,10 @@
   </label>
 </form>
 
-<div id="stats" data-profile="{{.Selected}}" data-days="{{.Days}}" data-day="{{.Date}}">
+<div id="stats" data-profile="{{.Selected}}" data-days="{{.Days}}" data-day="{{.Date}}" data-type="{{.Type}}">
   <section class="card">
     <h2>Spielzeit pro Tag</h2>
-    <p class="muted small">Balken pro Gerät. Die Linie „Gesamt“ zählt gleichzeitige Nutzung nur einmal, die gestrichelte Linie ist das Tageslimit.</p>
+    <p class="muted small">Balken pro Gerät. Die Linie „Gesamt“ zählt gleichzeitige Nutzung nur einmal, die gestrichelte Linie ist das Tageslimit (nur bei Konsole oder Handy).</p>
     <div class="chart tall"><canvas id="chart-daily"></canvas></div>
   </section>
 

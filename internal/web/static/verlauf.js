@@ -19,7 +19,7 @@
     return m < 60 ? m + " Min" : Math.floor(m / 60) + ":" + String(m % 60).padStart(2, "0") + " Std";
   };
 
-  const params = new URLSearchParams({ profile: root.dataset.profile, days: root.dataset.days, day: root.dataset.day });
+  const params = new URLSearchParams({ profile: root.dataset.profile, days: root.dataset.days, day: root.dataset.day, type: root.dataset.type });
   fetch("/api/stats?" + params, { credentials: "same-origin" })
     .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
     .then(render)

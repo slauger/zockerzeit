@@ -478,6 +478,7 @@ type historyData struct {
 	Selected string
 	Days     int
 	Date     string
+	Type     string
 }
 
 func (s *Server) history(w http.ResponseWriter, r *http.Request) {
@@ -491,7 +492,11 @@ func (s *Server) history(w http.ResponseWriter, r *http.Request) {
 	if date == "" {
 		date = s.engine.Now().Format("2006-01-02")
 	}
-	s.render(w, r, "verlauf", "Verlauf", historyData{Profiles: profiles, Selected: sel, Days: days, Date: date})
+	t := r.URL.Query().Get("typ")
+	if t != store.TypePhone && t != "alle" {
+		t = store.TypeConsole
+	}
+	s.render(w, r, "verlauf", "Verlauf", historyData{Profiles: profiles, Selected: sel, Days: days, Date: date, Type: t})
 }
 
 type statsResponse struct {
@@ -516,9 +521,12 @@ func (s *Server) statsAPI(w http.ResponseWriter, r *http.Request) {
 	for _, d := range devs {
 		names[d.MAC] = d.Name
 	}
+	// Without a type filter console and phone time are mixed, so there is no
+	// single limit to draw.
+	deviceType := r.URL.Query().Get("type")
 	limit := 0
-	if p, err := s.store.Profile(profileID); err == nil {
-		limit = p.Console.DailyMinutes
+	if p, err := s.store.Profile(profileID); err == nil && (deviceType == store.TypeConsole || deviceType == store.TypePhone) {
+		limit = p.Rules(deviceType).DailyMinutes
 	}
 
 	from := rules.StartOfDay(now).AddDate(0, 0, -(days - 1))
@@ -527,6 +535,7 @@ func (s *Server) statsAPI(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	samples = filterType(samples, deviceType)
 
 	day, err := time.ParseInLocation("2006-01-02", r.URL.Query().Get("day"), loc)
 	if err != nil {
@@ -537,6 +546,7 @@ func (s *Server) statsAPI(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	daySamples = filterType(daySamples, deviceType)
 
 	writeJSON(w, statsResponse{
 		Profile:   profileID,
@@ -687,4 +697,18 @@ func (s *Server) deviceDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	data.Sessions = stats.Sessions(mine, map[string]string{mac: data.Device.Name}, 3*time.Minute)
 	s.render(w, r, "geraet", data.Device.Name, data)
+}
+
+// filterType keeps the samples of one device type; any other value keeps all.
+func filterType(samples []store.Sample, deviceType string) []store.Sample {
+	if deviceType != store.TypeConsole && deviceType != store.TypePhone {
+		return samples
+	}
+	out := samples[:0]
+	for _, sm := range samples {
+		if sm.Type == deviceType {
+			out = append(out, sm)
+		}
+	}
+	return out
 }

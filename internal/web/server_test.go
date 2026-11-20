@@ -317,7 +317,7 @@ func TestProfilesAndDevices(t *testing.T) {
 
 func TestStatsAndKidAPI(t *testing.T) {
 	e := newEnv(t, "")
-	code, body := e.get("/api/stats?profile=max&days=7&day=" + time.Now().In(berlin).AddDate(0, 0, -1).Format("2006-01-02"))
+	code, body := e.get("/api/stats?profile=max&type=console&days=7&day=" + time.Now().In(berlin).AddDate(0, 0, -1).Format("2006-01-02"))
 	if code != http.StatusOK {
 		t.Fatalf("stats: %d", code)
 	}
@@ -327,6 +327,23 @@ func TestStatsAndKidAPI(t *testing.T) {
 	}
 	if st.Limit != 90 || len(st.Daily.Labels) != 7 || len(st.Devices) == 0 || len(st.Locations) == 0 {
 		t.Fatalf("unexpected stats: limit=%d labels=%d devices=%d", st.Limit, len(st.Daily.Labels), len(st.Devices))
+	}
+	_, body = e.get("/api/stats?profile=max&days=7&type=phone")
+	var phone statsResponse
+	if err := json.Unmarshal([]byte(body), &phone); err != nil {
+		t.Fatal(err)
+	}
+	if phone.Limit != 60 || len(phone.Devices) != 1 || phone.Devices[0].Name != "iPhone Max" {
+		t.Fatalf("phone stats not filtered: limit=%d devices=%+v", phone.Limit, phone.Devices)
+	}
+	_, body = e.get("/api/stats?profile=max&days=7&type=alle")
+	var all statsResponse
+	_ = json.Unmarshal([]byte(body), &all)
+	if all.Limit != 0 || len(all.Devices) != 3 {
+		t.Fatalf("unfiltered stats: limit=%d devices=%d", all.Limit, len(all.Devices))
+	}
+	if code, _ := e.get("/verlauf?typ=phone"); code != http.StatusOK {
+		t.Fatalf("history with type: %d", code)
 	}
 	if code, _ := e.get("/api/stats?profile=max&days=abc&day=kaputt"); code != http.StatusOK {
 		t.Fatalf("stats with bad params: %d", code)

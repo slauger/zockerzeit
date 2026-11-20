@@ -16,3 +16,4 @@ Makefile
 renovate.json
 config.yaml
 .DS_Store
+docs/

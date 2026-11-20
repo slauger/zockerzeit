@@ -4,33 +4,50 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/slauger/zockerzeit)](https://goreportcard.com/report/github.com/slauger/zockerzeit)
 [![License](https://img.shields.io/github/license/slauger/zockerzeit)](LICENSE)
 
-Zockerzeit tracks and limits the play time of kids by blocking their consoles and phones on a UniFi WLAN. Parents agree on time windows and daily or weekly budgets, Zockerzeit records when, how long and where each device is used and cuts the WLAN when the time is up, without anyone having to walk over and argue.
+Zockerzeit ("gaming time") tracks and limits how long kids play by blocking their consoles and phones on a UniFi WLAN. Parents agree on time windows and daily or weekly budgets, Zockerzeit records when, how long and where each device is used and cuts the WLAN when the time is up, so nobody has to walk over and argue.
 
-- 🎮 **Time windows and budgets** - per weekday windows, daily and weekly limits per kid, separately for consoles and phones (night lock included)
-- 📊 **History** - play time per day and device, timeline per day, weekday/hour heatmap, usage per room (access point)
-- ⛔ **Automatic blocking** - devices are blocked and unblocked via the UniFi controller
-- 👆 **Parent controls** - one tap for bonus minutes, free play, lock for an hour or until tomorrow
-- 👫 **Shared consoles** - release a shared device for a sibling, time counts on the sibling's budget
-- 🧒 **Kid view** - a read-only page that shows the remaining time, so nobody has to ask
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/dashboard-dark.png">
+  <img alt="Dashboard with one panel per kid: remaining play time, an energy bar with one segment per 15 minutes, devices and quick actions" src="docs/images/dashboard-light.png">
+</picture>
+
+- 🎮 **Time windows and budgets** - weekday windows, daily and weekly limits per kid, separately for consoles and phones (the night lock is just a window)
+- 🔋 **Energy bar** - remaining time at a glance, one segment per 15 minutes
+- 📊 **History** - play time per day and device, a timeline per day, a weekday/hour heatmap and usage per room (access point)
+- ⛔ **Automatic blocking** - devices are blocked and unblocked through the UniFi controller, nothing to install on the devices
+- 👆 **Parent controls** - one tap for bonus minutes, free play, a pause for an hour or until tomorrow
+- 👫 **Shared consoles** - release a sibling's console for 30 minutes, the time counts on the right budget
+- 🧒 **Kid view** - a read-only page with the remaining time, so nobody has to ask
 - 🔔 **Push warnings** - optional ntfy notifications 10 and 5 minutes before the end
 - 🧪 **Test mode** - records and shows decisions without blocking anything (default)
+- 🏠 **Local only** - a single Go binary with SQLite, no cloud, no account, names and rules never leave your network
+
+The web interface is in German.
+
+| Rules per device type | History |
+|---|---|
+| <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/rules-dark.png"><img alt="Rules page with a 24 hour track per weekday for consoles and phones" src="docs/images/rules-light.png"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/history-dark.png"><img alt="History with play time per day and device and a timeline" src="docs/images/history-light.png"></picture> |
+| **Device page** | **Kid view** |
+| <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/device-dark.png"><img alt="Device page with lock and release actions and today's sessions" src="docs/images/device-light.png"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/kid-dark.png"><img alt="Kid view showing the remaining time in large type" src="docs/images/kid-light.png"></picture> |
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    subgraph k3s
+    subgraph Kubernetes
         ZZ[Zockerzeit] -->|SQLite| PVC[(PVC)]
         ZZ -->|stat/sta, rest/user,<br>cmd/stamgr| UC[UniFi Network<br>Application]
     end
-    UC --> AP[UniFi Access Points]
-    AP -. WLAN .- SW[Switch / iPhone]
-    P[Parents] -->|Web UI| ZZ
-    K[Kid] -->|/kind/name| ZZ
+    UC --> AP[UniFi access points]
+    AP -. WLAN .- D[Consoles and phones]
+    P[Parents] -->|web UI| ZZ
+    K[Kids] -->|kid view| ZZ
     ZZ -.->|optional| N[ntfy]
 ```
 
-Every minute Zockerzeit asks the controller which clients are connected and how much traffic they produced. Consoles count as playing while connected (they drop off the WLAN in standby), phones only while they produce traffic. The minutes are stored per device and attributed to a profile, parallel use of several devices counts once. After each poll the rules are evaluated and devices are blocked or unblocked with `block-sta` / `unblock-sta`. Devices that are not assigned to a profile are never touched.
+Every minute Zockerzeit asks the controller which clients are connected and how much traffic they produced, and matches them to the managed devices by MAC address. Consoles count as playing while connected (they drop off the WLAN in standby), phones only while they produce traffic. The minutes are stored per device and device type and attributed to a kid, parallel use of several devices counts once. After each poll the rules are evaluated and devices are blocked or unblocked with `block-sta` / `unblock-sta`. Devices that are not assigned to a kid are never touched.
+
+All configuration (kids, rules, devices) lives in the SQLite database and is edited in the web UI. The config file only holds the connection settings.
 
 ## Quick Start
 
@@ -53,6 +70,8 @@ make run
 
 ## Deployment on Kubernetes
 
+The container image is published to `ghcr.io/slauger/zockerzeit`, the Helm chart lives in [charts/zockerzeit](charts/zockerzeit).
+
 ```bash
 kubectl create namespace zockerzeit
 kubectl -n zockerzeit create secret generic zockerzeit \
@@ -63,26 +82,27 @@ kubectl -n zockerzeit create secret generic zockerzeit \
 
 helm install zockerzeit charts/zockerzeit -n zockerzeit \
   --set config.unifi.url=https://unifi.unifi.svc.cluster.local:8443 \
-  --set secret.existingSecret=zockerzeit \
-  --set image.tag=main
+  --set secret.existingSecret=zockerzeit
 ```
 
-See the [chart README](charts/zockerzeit/README.md) for all values.
+See the [chart README](charts/zockerzeit/README.md) for all values. Run a single replica only, the database is SQLite.
 
 ## Setup
 
 1. In the UniFi controller create a dedicated local admin account for Zockerzeit (Network permissions only). Do not reuse your own account.
-2. Open **Regeln** and create a profile per kid with time windows (`15:00-18:30`) and limits in minutes.
-3. Open **Geräte** and assign the consoles and phones currently in the WLAN. Consoles use *wenn verbunden*, phones *bei Datenverkehr*. Mark consoles used by siblings as *gemeinsam genutzt*.
-4. On iPhones set *Private WLAN-Adresse* to *fest* for the kids network, otherwise the MAC address can change and bypass the block.
+2. Open **Regeln** and create a profile per kid with time windows (`15:00-18:30`) and limits in minutes, separately for consoles and phones.
+3. Open **Geräte** and assign the consoles and phones currently in the WLAN. Mark consoles used by siblings as shared.
+4. On iPhones set *Private WLAN-Adresse* to *fest* (fixed) for the kids' network, otherwise the MAC address rotates and the block no longer applies.
 5. Let it run in test mode for a few days and compare the **Verlauf** with reality, then set `dryRun: false`.
 
 ## Limitations
 
-- Only WLAN clients behind UniFi access points can be blocked. Devices connected to another WLAN (e.g. the router's own) or via cable to a non-UniFi switch are out of reach.
-- Blocking the WLAN does not stop mobile data on phones. Use Screen Time / Family Link for that.
-- Consoles in standby with downloads enabled may stay connected and count as playing. If the history shows play time at night, disable automatic downloads in sleep mode on the console or switch the device to traffic mode.
+- Only WLAN clients behind UniFi access points can be blocked. Devices on another WLAN (e.g. the router's own) or cabled to a non-UniFi switch are out of reach.
+- Blocking the WLAN does not stop mobile data on phones, calls always work. Use Screen Time or Family Link if you need more.
+- Devices are identified by MAC address. A device with a new (random) MAC shows up as a new, unmanaged device.
+- Consoles in standby with downloads enabled may stay connected and count as playing. If the history shows play time at night, disable downloads in sleep mode or switch the device to the phone type.
 - Zockerzeit sees connection times and traffic volume, not which game or app is used.
+- Blocks are stored in the controller. If Zockerzeit is down, blocked devices stay blocked until it is back or you unblock them in UniFi.
 
 ## Configuration
 
@@ -100,6 +120,7 @@ All options are documented in [config.example.yaml](config.example.yaml). Secret
 ## Local Development
 
 ```bash
+make demo      # UI with simulated controller and sample data
 make test      # unit tests with race detector
 make cover     # tests with 80% coverage gate
 make lint      # golangci-lint
