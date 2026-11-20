@@ -1,49 +1,58 @@
 {{define "content"}}
 {{with .Data}}
+<div class="page-head">
+  <h1>{{germanDate .PolledAt}}</h1>
+  <p class="muted">Stand {{clock .PolledAt}} Uhr</p>
+</div>
+
 {{if not .Views}}
-<section class="card onboarding">
-  <h1>Willkommen bei Zockerzeit</h1>
-  <ol>
-    <li>Unter <a href="/regeln">Regeln</a> ein Profil anlegen, mit Spielzeiten und Tageslimit.</li>
-    <li>Unter <a href="/geraete">Geräte</a> die Switches und das iPhone dem Profil zuordnen.</li>
-    <li>Ein paar Tage im Testmodus laufen lassen und den <a href="/verlauf">Verlauf</a> prüfen.</li>
-  </ol>
+<section class="empty">
+  <h2>Noch niemand angelegt</h2>
+  <p>Leg unter <a href="/regeln">Regeln</a> ein Profil pro Kind an und ordne danach unter <a href="/geraete">Geräte</a> die Switches und Handys zu. Lass Zockerzeit dann ein paar Tage im Testmodus laufen und vergleich den <a href="/verlauf">Verlauf</a> mit dem, was du mitbekommst.</p>
 </section>
 {{end}}
 
-<div class="grid profiles">
-{{range .Views}}
+<div class="players">
+{{range $i, $v := .Views}}
 {{$p := .Profile}}
-<section class="card profile {{if .Status.Allowed}}is-allowed{{else}}is-blocked{{end}}">
-  <header class="profile-head">
-    <h2>{{$p.Name}}</h2>
-    <span class="pill">{{if .Status.Allowed}}Darf spielen{{else}}Gesperrt{{end}}</span>
+{{$st := .Status}}
+<section class="player {{if $st.Allowed}}is-allowed{{else}}is-paused{{end}}" style="--player: var(--series-{{if eq $i 0}}1{{else}}2{{end}})">
+  <header class="player-head">
+    <span class="avatar" aria-hidden="true">{{initial $p.Name}}</span>
+    <div>
+      <h2>{{$p.Name}}</h2>
+      <p class="status">{{if $st.Allowed}}Darf spielen{{else}}Gesperrt{{end}}<span class="reason">{{$st.Reason}}</span></p>
+    </div>
   </header>
-  <p class="reason">{{.Status.Reason}}</p>
 
-  <div class="remaining">
-    <span class="label">Heute noch</span>
-    <span class="big">{{remaining .Status}}</span>
+  <div class="timer">
+    {{if $st.Allowed}}
+      <p class="time">{{remaining $st}}</p>
+      <p class="time-caption">noch spielbar</p>
+    {{else}}
+      <p class="time">Pause</p>
+      <p class="time-caption">{{if $st.LimitToday}}{{dur (quotaLeft $st)}} vom Tageslimit übrig{{else}}gerade keine Spielzeit{{end}}</p>
+    {{end}}
   </div>
 
-  <div class="meter-row">
-    <div class="meter-label"><span>Heute</span><span>{{dur .Status.UsedToday}}{{if .Status.LimitToday}} / {{.Status.LimitToday}} Min{{end}}</span></div>
-    <div class="meter"><span style="width: {{pct .Status.UsedToday .Status.LimitToday}}%"></span></div>
+  {{with cells $st}}
+  <div class="energy" role="img" aria-label="{{dur $st.UsedToday}} von {{$st.LimitToday}} Minuten heute gespielt">
+    {{range .}}<span class="cell {{.}}"></span>{{end}}
   </div>
-  <div class="meter-row">
-    <div class="meter-label"><span>Diese Woche</span><span>{{dur .Status.UsedWeek}}{{if .Status.LimitWeek}} / {{.Status.LimitWeek}} Min{{end}}</span></div>
-    <div class="meter week"><span style="width: {{pct .Status.UsedWeek .Status.LimitWeek}}%"></span></div>
-  </div>
+  {{end}}
+  <dl class="budget">
+    <div><dt>Heute gespielt</dt><dd>{{dur $st.UsedToday}}{{if $st.LimitToday}} von {{$st.LimitToday}} Min{{end}}</dd></div>
+    <div><dt>Diese Woche</dt><dd>{{dur $st.UsedWeek}}{{if $st.LimitWeek}} von {{dur (minutes $st.LimitWeek)}}{{end}}</dd></div>
+  </dl>
+  {{if $st.LimitWeek}}<div class="week-bar"><span style="width: {{pct $st.UsedWeek $st.LimitWeek}}%"></span></div>{{end}}
 
   {{if .Devices}}
-  <ul class="devices">
+  <ul class="chips">
     {{range .Devices}}
-    <li>
-      <span class="dot {{if .Blocked}}blocked{{else if .Active}}active{{else if .Online}}online{{end}}" aria-hidden="true"></span>
-      <span class="dtext">
-        <span class="dname">{{.Device.Name}}</span>
-        <span class="dmeta">{{if .Blocked}}gesperrt{{else if .Active}}spielt gerade{{else if .Online}}online{{else}}offline{{end}}{{if and .Online .APName}} · {{.APName}}{{end}}{{if ne .AttributedTo $p.ID}} · für {{.AttributedTo}}{{end}}</span>
-      </span>
+    <li class="chip {{if .Blocked}}blocked{{else if .Active}}active{{else if .Online}}online{{else}}offline{{end}}">
+      <span class="dot" aria-hidden="true"></span>
+      <span class="chip-name">{{.Device.Name}}</span>
+      <span class="chip-state">{{if .Blocked}}gesperrt{{else if .Active}}spielt{{if .APName}}, {{.APName}}{{end}}{{else if .Online}}online{{if .APName}}, {{.APName}}{{end}}{{else}}aus{{end}}{{if ne .AttributedTo $p.ID}}, für {{.AttributedTo}}{{end}}</span>
     </li>
     {{end}}
   </ul>
@@ -53,62 +62,72 @@
   <ul class="overrides">
     {{range .Overrides}}
     <li>
-      <span><strong>{{kindLabel .Kind}}</strong> {{.Note}} <span class="muted">(bis {{clock .Until}})</span></span>
-      <form method="post" action="/aktion/{{.ID}}/beenden"><button class="link">beenden</button></form>
+      <span>{{.Note}}, bis {{clock .Until}} Uhr</span>
+      <form method="post" action="/aktion/{{.ID}}/beenden"><button class="link">Beenden</button></form>
     </li>
     {{end}}
   </ul>
   {{end}}
 
-  <div class="actions">
-    <form method="post" action="/aktion"><input type="hidden" name="action" value="bonus"><input type="hidden" name="profile" value="{{$p.ID}}"><input type="hidden" name="minutes" value="15"><button>+15 Min</button></form>
-    <form method="post" action="/aktion"><input type="hidden" name="action" value="bonus"><input type="hidden" name="profile" value="{{$p.ID}}"><input type="hidden" name="minutes" value="30"><button>+30 Min</button></form>
-    <form method="post" action="/aktion"><input type="hidden" name="action" value="allow"><input type="hidden" name="profile" value="{{$p.ID}}"><input type="hidden" name="minutes" value="30"><button title="Ignoriert Zeitfenster und Limits">30 Min frei</button></form>
-    <form method="post" action="/aktion"><input type="hidden" name="action" value="lock"><input type="hidden" name="profile" value="{{$p.ID}}"><input type="hidden" name="minutes" value="60"><button class="danger">1 Std sperren</button></form>
-    <form method="post" action="/aktion"><input type="hidden" name="action" value="lock"><input type="hidden" name="profile" value="{{$p.ID}}"><input type="hidden" name="minutes" value="0"><button class="danger strong">Bis morgen sperren</button></form>
+  <div class="controls">
+    <div class="control-group">
+      <h3>Mehr Zeit</h3>
+      <div class="buttons">
+        <form method="post" action="/aktion"><input type="hidden" name="action" value="bonus"><input type="hidden" name="profile" value="{{$p.ID}}"><input type="hidden" name="minutes" value="15"><button>+15 Min</button></form>
+        <form method="post" action="/aktion"><input type="hidden" name="action" value="bonus"><input type="hidden" name="profile" value="{{$p.ID}}"><input type="hidden" name="minutes" value="30"><button>+30 Min</button></form>
+        <form method="post" action="/aktion"><input type="hidden" name="action" value="allow"><input type="hidden" name="profile" value="{{$p.ID}}"><input type="hidden" name="minutes" value="30"><button title="Gilt auch außerhalb der Zeitfenster und über dem Limit">30 Min frei</button></form>
+      </div>
+    </div>
+    <div class="control-group">
+      <h3>Pause</h3>
+      <div class="buttons">
+        <form method="post" action="/aktion"><input type="hidden" name="action" value="lock"><input type="hidden" name="profile" value="{{$p.ID}}"><input type="hidden" name="minutes" value="60"><button class="danger">1 Std</button></form>
+        <form method="post" action="/aktion"><input type="hidden" name="action" value="lock"><input type="hidden" name="profile" value="{{$p.ID}}"><input type="hidden" name="minutes" value="0"><button class="danger strong">Bis morgen</button></form>
+      </div>
+    </div>
   </div>
-  <a class="kidlink" href="/kind/{{$p.ID}}">Kinderansicht öffnen →</a>
+  <a class="kidlink" href="/kind/{{$p.ID}}">Kinderansicht öffnen</a>
 </section>
 {{end}}
 </div>
 
-{{if .Shared}}
-<section class="card">
-  <h2>Gemeinsames Gerät freigeben</h2>
-  <p class="muted">Gibt ein Gerät für jemand anderen frei. Die Zeit zählt auf dessen Profil, nicht auf das des Besitzers.</p>
-  <form method="post" action="/aktion" class="inline-form">
-    <input type="hidden" name="action" value="release">
-    <label>Gerät
-      <select name="device">{{range .Shared}}<option value="{{.MAC}}">{{.Name}}</option>{{end}}</select>
-    </label>
-    <label>für
-      <select name="profile">{{range .Profiles}}<option value="{{.ID}}">{{.Name}}</option>{{end}}</select>
-    </label>
-    <label>Minuten
-      <input type="number" name="minutes" value="30" min="5" max="600" step="5">
-    </label>
-    <button class="primary">Freigeben</button>
-  </form>
-</section>
-{{end}}
-
 {{if .Devices}}
-<section class="card">
-  <h2>Einzelnes Gerät sperren</h2>
-  <form method="post" action="/aktion" class="inline-form">
-    <input type="hidden" name="action" value="lockdevice">
-    <label>Gerät
-      <select name="device">{{range .Devices}}<option value="{{.MAC}}">{{.Name}}</option>{{end}}</select>
-    </label>
-    <label>Minuten (0 = bis morgen)
-      <input type="number" name="minutes" value="60" min="0" max="1440" step="5">
-    </label>
-    <button class="danger">Sperren</button>
-  </form>
-</section>
+<div class="tools">
+  {{if .Shared}}
+  <section class="tool">
+    <h2>Konsole für jemand anderen freigeben</h2>
+    <p class="muted">Die Zeit zählt dann für die gewählte Person, nicht für den Besitzer.</p>
+    <form method="post" action="/aktion" class="inline-form">
+      <input type="hidden" name="action" value="release">
+      <label>Gerät
+        <select name="device">{{range .Shared}}<option value="{{.MAC}}">{{.Name}}</option>{{end}}</select>
+      </label>
+      <label>Für
+        <select name="profile">{{range .Profiles}}<option value="{{.ID}}">{{.Name}}</option>{{end}}</select>
+      </label>
+      <label>Minuten
+        <input type="number" name="minutes" value="30" min="5" max="600" step="5">
+      </label>
+      <button class="primary">Freigeben</button>
+    </form>
+  </section>
+  {{end}}
+  <section class="tool">
+    <h2>Einzelnes Gerät sperren</h2>
+    <p class="muted">Sperrt nur dieses Gerät, die anderen bleiben, wie sie sind.</p>
+    <form method="post" action="/aktion" class="inline-form">
+      <input type="hidden" name="action" value="lockdevice">
+      <label>Gerät
+        <select name="device">{{range .Devices}}<option value="{{.MAC}}">{{.Name}}</option>{{end}}</select>
+      </label>
+      <label>Minuten, 0 bis morgen
+        <input type="number" name="minutes" value="60" min="0" max="1440" step="5">
+      </label>
+      <button class="danger">Sperren</button>
+    </form>
+  </section>
+</div>
 {{end}}
-
-<p class="muted small">Letzte Abfrage: {{clock .PolledAt}}</p>
 {{end}}
 {{end}}
 

@@ -15,6 +15,7 @@ import (
 
 	"github.com/slauger/zockerzeit/internal/demo"
 	"github.com/slauger/zockerzeit/internal/engine"
+	"github.com/slauger/zockerzeit/internal/rules"
 	"github.com/slauger/zockerzeit/internal/store"
 )
 
@@ -74,7 +75,7 @@ func (e *env) post(path string, form url.Values) (int, string) {
 func TestPagesRender(t *testing.T) {
 	e := newEnv(t, "")
 	for path, want := range map[string]string{
-		"/":          "Gemeinsames Gerät freigeben",
+		"/":          "Konsole für jemand anderen freigeben",
 		"/verlauf":   "Spielzeit pro Tag",
 		"/regeln":    "Neues Profil",
 		"/geraete":   "Switch Kinderzimmer",
@@ -320,5 +321,34 @@ func TestHelpers(t *testing.T) {
 	pct := f["pct"].(func(time.Duration, int) int)
 	if pct(time.Hour, 0) != 0 || pct(2*time.Hour, 60) != 100 || pct(30*time.Minute, 60) != 50 {
 		t.Fatal("pct")
+	}
+}
+
+func TestEnergyCells(t *testing.T) {
+	cases := []struct {
+		st   rules.Status
+		want string
+	}{
+		{rules.Status{}, ""},
+		{rules.Status{Allowed: true, LimitToday: 60, UsedToday: 20 * time.Minute}, "used,left,left,left"},
+		{rules.Status{Allowed: true, LimitToday: 60, UsedToday: 50 * time.Minute}, "used,used,used,low"},
+		{rules.Status{Allowed: false, LimitToday: 45, UsedToday: 0}, "paused,paused,paused"},
+		{rules.Status{Allowed: false, LimitToday: 30, UsedToday: time.Hour}, "used,used"},
+	}
+	for _, c := range cases {
+		if got := strings.Join(energyCells(c.st), ","); got != c.want {
+			t.Errorf("energyCells(%+v) = %q, want %q", c.st, got, c.want)
+		}
+	}
+	f := funcs(berlin)
+	if got := f["germanDate"].(func(time.Time) string)(time.Date(2026, 11, 20, 12, 0, 0, 0, berlin)); got != "Freitag, 20. November" {
+		t.Errorf("germanDate = %q", got)
+	}
+	if f["initial"].(func(string) string)("lea") != "L" || f["initial"].(func(string) string)("") != "?" {
+		t.Error("initial")
+	}
+	ql := f["quotaLeft"].(func(rules.Status) time.Duration)
+	if ql(rules.Status{}) != 0 || ql(rules.Status{LimitToday: 30, UsedToday: time.Hour}) != 0 || ql(rules.Status{LimitToday: 30}) != 30*time.Minute {
+		t.Error("quotaLeft")
 	}
 }

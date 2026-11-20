@@ -265,6 +265,24 @@ func funcs(loc *time.Location) template.FuncMap {
 			return formatDuration(st.Remaining)
 		},
 		"windows": rules.FormatWindows,
+		"cells":   energyCells,
+		"minutes": func(m int) time.Duration { return time.Duration(m) * time.Minute },
+		"initial": func(name string) string {
+			for _, r := range name {
+				return strings.ToUpper(string(r))
+			}
+			return "?"
+		},
+		"germanDate": func(t time.Time) string {
+			t = t.In(loc)
+			return fmt.Sprintf("%s, %d. %s", weekdayLong[t.Weekday()], t.Day(), monthLong[t.Month()-1])
+		},
+		"quotaLeft": func(st rules.Status) time.Duration {
+			if st.LimitToday <= 0 {
+				return 0
+			}
+			return max(time.Duration(st.LimitToday)*time.Minute-st.UsedToday, 0)
+		},
 		"weekday": func(d time.Weekday) string { return rules.WeekdayNames[d] },
 		"kindLabel": func(k string) string {
 			return map[string]string{
@@ -272,6 +290,50 @@ func funcs(loc *time.Location) template.FuncMap {
 			}[k]
 		},
 	}
+}
+
+var weekdayLong = map[time.Weekday]string{
+	time.Monday: "Montag", time.Tuesday: "Dienstag", time.Wednesday: "Mittwoch", time.Thursday: "Donnerstag",
+	time.Friday: "Freitag", time.Saturday: "Samstag", time.Sunday: "Sonntag",
+}
+
+var monthLong = []string{
+	"Januar", "Februar", "März", "April", "Mai", "Juni",
+	"Juli", "August", "September", "Oktober", "November", "Dezember",
+}
+
+// cellMinutes is the play time one segment of the energy bar stands for.
+const cellMinutes = 15
+
+// energyCells splits today's budget into segments of cellMinutes. Each cell
+// is "used", "left" (still playable), "low" (last segment while playing) or
+// "paused" (budget left, but currently not allowed).
+func energyCells(st rules.Status) []string {
+	if st.LimitToday <= 0 {
+		return nil
+	}
+	n := (st.LimitToday + cellMinutes - 1) / cellMinutes
+	leftMin := st.LimitToday - int(st.UsedToday.Minutes())
+	left := 0
+	if leftMin > 0 {
+		left = (leftMin + cellMinutes - 1) / cellMinutes
+	}
+	state := "left"
+	switch {
+	case !st.Allowed:
+		state = "paused"
+	case left <= 1:
+		state = "low"
+	}
+	cells := make([]string, n)
+	for i := range cells {
+		if i < n-left {
+			cells[i] = "used"
+		} else {
+			cells[i] = state
+		}
+	}
+	return cells
 }
 
 // formatDuration renders a duration as "35 Min" or "1:05 Std".
