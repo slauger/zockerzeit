@@ -55,7 +55,7 @@ func TestSyncer(t *testing.T) {
 	}
 
 	titles, _ := st.NintendoTitles()
-	if titles["0100A"].Name != "Kart" || titles["0100B"].Name != "Bauen" || titles["0100B"].ImageURI != "https://img/bauen" {
+	if titles["0100A"].Name != "Kart" || titles["0100B"].Name != "Bauen" || titles["0100B"].ImageURI != "https://img/b-small" {
 		t.Fatalf("titles = %+v", titles)
 	}
 	if !strings.Contains(accs[0].LastError, "Spieleliste") {

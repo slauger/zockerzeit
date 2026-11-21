@@ -16,6 +16,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -301,7 +302,7 @@ func (a *Account) DailySummaries(ctx context.Context, deviceID string) ([]DailyS
 				if m.ApplicationID == "" {
 					m = g.Meta
 				}
-				pd.Games = append(pd.Games, Game{ApplicationID: m.ApplicationID, Title: m.Title, ImageURI: m.ImageURI, Minutes: deref(g.PlayingTime)})
+				pd.Games = append(pd.Games, Game{ApplicationID: m.ApplicationID, Title: m.Title, ImageURI: string(m.ImageURI), Minutes: deref(g.PlayingTime)})
 			}
 			ds.Players = append(ds.Players, pd)
 		}
@@ -311,9 +312,37 @@ func (a *Account) DailySummaries(ctx context.Context, deviceID string) ([]DailyS
 }
 
 type appMeta struct {
-	ApplicationID string `json:"applicationId"`
-	Title         string `json:"title"`
-	ImageURI      string `json:"imageUri"`
+	ApplicationID string   `json:"applicationId"`
+	Title         string   `json:"title"`
+	ImageURI      imageURI `json:"imageUri"`
+}
+
+// imageURI is either a plain URL or an object with one URL per size.
+type imageURI string
+
+func (u *imageURI) UnmarshalJSON(b []byte) error {
+	var s string
+	if json.Unmarshal(b, &s) == nil {
+		*u = imageURI(s)
+		return nil
+	}
+	// Anything else than a string or an object carries no usable URL.
+	var sizes map[string]any
+	_ = json.Unmarshal(b, &sizes)
+	keys := make([]string, 0, len(sizes))
+	for k := range sizes {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	keys = append([]string{"medium", "large", "small"}, keys...)
+	for _, k := range keys {
+		if v, ok := sizes[k].(string); ok && strings.HasPrefix(v, "http") {
+			*u = imageURI(v)
+			return nil
+		}
+	}
+	*u = ""
+	return nil
 }
 
 // Title is the name and cover image of an application.
@@ -337,7 +366,7 @@ func (a *Account) Titles(ctx context.Context, deviceID string) ([]Title, error) 
 	out := make([]Title, 0, len(raw.Setting.Apps))
 	for _, app := range raw.Setting.Apps {
 		if app.ApplicationID != "" {
-			out = append(out, Title{ApplicationID: app.ApplicationID, Name: app.Title, ImageURI: app.ImageURI})
+			out = append(out, Title{ApplicationID: app.ApplicationID, Name: app.Title, ImageURI: string(app.ImageURI)})
 		}
 	}
 	return out, nil

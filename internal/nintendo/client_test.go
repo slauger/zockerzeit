@@ -77,7 +77,7 @@ func (f *fakeNintendo) handler() http.Handler {
 		_, _ = io.WriteString(w, `{"dailySummaries":[
 			{"date":"2026-11-21","playingTime":75,"players":[
 				{"profile":{"playerId":"P1","nickname":"Kind A","imageUri":"https://img/a"},"playingTime":60,
-				 "playedGames":[{"meta":{"applicationId":"0100A","title":"Kart","imageUri":"https://img/kart"},"playingTime":45},{"applicationId":"0100B","playingTime":15}]},
+				 "playedGames":[{"meta":{"applicationId":"0100A","title":"Kart","imageUri":"https://img/kart"},"playingTime":45},{"applicationId":"0100B","imageUri":{"small":"https://img/b-small","extraLarge":"https://img/b-xl"},"playingTime":15}]},
 				{"profile":{"playerId":"P2","nickname":"Kind B"},"playingTime":15,"playedGames":[]}]},
 			{"date":"2026-11-20","playingTime":null,"players":[]}]}`)
 	}))
@@ -87,7 +87,7 @@ func (f *fakeNintendo) handler() http.Handler {
 			return
 		}
 		_, _ = io.WriteString(w, `{"parentalControlSetting":{"whitelistedApplicationList":[
-			{"applicationId":"0100b","title":"Bauen","imageUri":"https://img/bauen"},{"applicationId":"","title":"kaputt"}]}}`)
+			{"applicationId":"0100b","title":"Bauen","imageUri":"https://img/bauen"},{"applicationId":"0100C","title":"Bild","imageUri":{"extraLarge":"https://img/c","other":7}},{"applicationId":"0100D","title":"ohne","imageUri":[1]},{"applicationId":"","title":"kaputt"}]}}`)
 	}))
 	return mux
 }
@@ -157,7 +157,8 @@ func TestAccountData(t *testing.T) {
 		t.Fatalf("player = %+v", p)
 	}
 	titles, err := a.Titles(ctx, "DEV1")
-	if err != nil || len(titles) != 1 || titles[0].Name != "Bauen" || titles[0].ApplicationID != "0100b" {
+	if err != nil || len(titles) != 3 || titles[0].Name != "Bauen" || titles[0].ApplicationID != "0100b" ||
+		titles[1].ImageURI != "https://img/c" || titles[2].ImageURI != "" || p.Games[1].ImageURI != "https://img/b-small" {
 		t.Fatalf("Titles = %+v, %v", titles, err)
 	}
 	if sums[1].Minutes != 0 {
