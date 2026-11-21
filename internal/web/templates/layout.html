@@ -8,20 +8,29 @@
 <title>{{.Title}} · Zockerzeit</title>
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/static/app.css">
+{{if ne .Nav "kind"}}
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+<meta name="theme-color" content="#f3f2f8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#17152b" media="(prefers-color-scheme: dark)">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Zockerzeit">
+{{end}}
 {{block "head" .}}{{end}}
 </head>
 <body class="page-{{.Nav}}">
 {{if and (ne .Nav "kind") (ne .Nav "login")}}
 <header class="topbar">
   <a class="brand" href="/"><img src="/static/favicon.svg" alt="" width="36" height="36"><span>Zockerzeit</span></a>
-  <nav>
-    <a href="/" {{if eq .Nav "dashboard"}}aria-current="page"{{end}}>Übersicht</a>
-    <a href="/verlauf" {{if eq .Nav "verlauf"}}aria-current="page"{{end}}>Verlauf</a>
-    <a href="/spiele" {{if eq .Nav "spiele"}}aria-current="page"{{end}}>Spiele</a>
-    <a href="/regeln" {{if eq .Nav "regeln"}}aria-current="page"{{end}}>Regeln</a>
-    <a href="/konsolen" {{if eq .Nav "konsolen"}}aria-current="page"{{end}}>Konsolen</a>
-    <a href="/protokoll" {{if eq .Nav "protokoll"}}aria-current="page"{{end}}>Protokoll</a>
-    <a href="/einstellungen" {{if or (eq .Nav "einstellungen") (eq .Nav "nintendo")}}aria-current="page"{{end}}>Einstellungen</a>
+  <nav class="tabs" aria-label="Hauptmenü">
+    <a href="/" {{if eq .Nav "dashboard"}}aria-current="page"{{end}}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg><span>Übersicht</span></a>
+    <a href="/verlauf" {{if eq .Nav "verlauf"}}aria-current="page"{{end}}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg><span>Verlauf</span></a>
+    <a href="/spiele" {{if eq .Nav "spiele"}}aria-current="page"{{end}}><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg><span>Spiele</span></a>
+    <a href="/regeln" {{if eq .Nav "regeln"}}aria-current="page"{{end}}><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span>Regeln</span></a>
+    <a href="/konsolen" {{if eq .Nav "konsolen"}}aria-current="page"{{end}}><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="7" width="20" height="11" rx="5.5"/><path d="M7 11v3M5.5 12.5h3"/></svg><span>Konsolen</span></a>
+    <a href="/protokoll" class="tab-wide" {{if eq .Nav "protokoll"}}aria-current="page"{{end}}><span>Protokoll</span></a>
+    <a href="/einstellungen" {{if or (eq .Nav "einstellungen") (eq .Nav "nintendo")}}aria-current="page"{{end}}><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg><span class="tab-long">Einstellungen</span><span class="tab-short">Mehr</span></a>
   </nav>
   {{if .Auth}}<form method="post" action="/logout" class="logout"><button class="link">Abmelden</button></form>{{end}}
 </header>
@@ -32,6 +41,7 @@
   {{template "content" .}}
 </main>
 {{if and (ne .Nav "kind") (ne .Nav "login")}}<footer>Zockerzeit {{.Version}}</footer>{{end}}
+{{if and (ne .Nav "kind") (ne .Nav "login")}}<script src="/static/install.js"></script>{{end}}
 {{block "scripts" .}}{{end}}
 </body>
 </html>{{end}}

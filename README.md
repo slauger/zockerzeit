@@ -17,7 +17,7 @@ Zockerzeit ("gaming time") is a self-hosted dashboard for parents that shows how
 - 🕹️ **Games** - every game Nintendo reported with cover, play time per kid, last played and on which console
 - 📈 **History** - play time per day and console, when during the week the kids play
 - 🔔 **Notifications** - Telegram or ntfy when a kid starts playing, when the time is almost up or used up while playing, each switchable
-- 📱 **Kid app** - an installable app (PWA) per kid with the remaining time and the own statistics for today, 7 or 30 days or all time
+- 📱 **Apps** - the parent UI and a kid app per kid install as web apps (PWA). The kid app shows the remaining time and the kid's own statistics for today, 7 or 30 days or all time
 - 🏠 **Self-hosted** - a single Go binary with SQLite. Names, rules and covers stay in your database, pages load nothing from other hosts
 
 The web interface is in German.
@@ -90,7 +90,15 @@ See the [chart README](charts/zockerzeit/README.md) for all values. Run a single
 3. **Einstellungen → Nintendo**: connect the account(s). The consoles show up after the first fetch.
 4. **Konsolen**: choose the kid each console belongs to.
 5. **Einstellungen → Benachrichtigungen**: add a Telegram bot or an ntfy topic and choose the events.
-6. Open the kid app on the kid's phone or tablet (`/kind/<name>`) and add it to the home screen.
+6. Install the apps (see below).
+
+### Installing the apps
+
+Both the parent UI and the kid app are installable web apps (PWA) with their own icon and without the browser bar. On phones the parent UI has a tab bar at the bottom.
+
+- **iPhone and iPad**: open the page in Safari, tap *Teilen* (share) and choose *Zum Home-Bildschirm*.
+- **Android**: open the page in Chrome and choose *App installieren* in the menu, or tap *Installieren* in the hint Zockerzeit shows.
+- **Parents** install `/`, **kids** install `/kind/<name>` on their own device. The kid app shows only the kid's own time, statistics and games.
 
 ## Limitations
 

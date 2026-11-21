@@ -18,6 +18,18 @@
   {{end}}
 </section>
 </div>
+<div class="settings">
+<section class="card" id="app">
+  <h2>Als App installieren</h2>
+  <p class="muted">Zockerzeit läuft auch als App mit eigenem Symbol auf dem Startbildschirm, für dich und für die Kinder.</p>
+  <ul class="steps">
+    <li><strong>iPhone und iPad:</strong> die Seite in Safari öffnen, unten auf <em>Teilen</em> tippen und <em>Zum Home-Bildschirm</em> wählen.</li>
+    <li><strong>Android:</strong> in Chrome das Menü öffnen und <em>App installieren</em> wählen.</li>
+    <li><strong>Für die Kinder:</strong> auf deren Gerät die Kinderansicht öffnen ({{range $i, $p := .Profiles}}{{if $i}}, {{end}}<a href="/kind/{{$p.ID}}">/kind/{{$p.ID}}</a>{{end}}) und genauso installieren. Die Kinder-App zeigt nur die eigene Zeit und Statistik.</li>
+  </ul>
+  <div class="buttons"><a class="button" href="/protokoll">Protokoll öffnen</a></div>
+</section>
+</div>
 {{with .Notify}}
 <div class="settings">
 <section class="card" id="benachrichtigungen">

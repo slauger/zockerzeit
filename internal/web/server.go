@@ -125,6 +125,7 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /login", s.loginPage)
 	m.HandleFunc("POST /login", s.login)
 	m.HandleFunc("POST /logout", s.logout)
+	m.HandleFunc("GET /manifest.webmanifest", s.appManifest)
 	m.HandleFunc("GET /kind/{id}", s.kidPage)
 	m.HandleFunc("GET /kind/{id}/manifest.webmanifest", s.kidManifest)
 	m.HandleFunc("GET /kind/{id}/statistik", s.kidStatsPage)

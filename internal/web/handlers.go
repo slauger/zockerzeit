@@ -460,12 +460,32 @@ func (s *Server) kidManifest(w http.ResponseWriter, r *http.Request) {
 		"orientation":      "portrait",
 		"background_color": "#17152b",
 		"theme_color":      "#17152b",
-		"icons": []map[string]string{
-			{"src": "/static/icons/icon-192.png", "sizes": "192x192", "type": "image/png"},
-			{"src": "/static/icons/icon-512.png", "sizes": "512x512", "type": "image/png"},
-			{"src": "/static/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
-		},
+		"icons":            appIcons,
 	})
+}
+
+// appManifest makes the parent UI installable as an app.
+func (s *Server) appManifest(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/manifest+json")
+	writeJSONBody(w, map[string]any{
+		"id":               "/",
+		"name":             "Zockerzeit für Eltern",
+		"short_name":       "Zockerzeit",
+		"description":      "Spielzeit der Kinder auf der Nintendo Switch",
+		"lang":             "de",
+		"start_url":        "/",
+		"scope":            "/",
+		"display":          "standalone",
+		"background_color": "#f3f2f8",
+		"theme_color":      "#6440f0",
+		"icons":            appIcons,
+	})
+}
+
+var appIcons = []map[string]string{
+	{"src": "/static/icons/icon-192.png", "sizes": "192x192", "type": "image/png"},
+	{"src": "/static/icons/icon-512.png", "sizes": "512x512", "type": "image/png"},
+	{"src": "/static/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
 }
 
 // kidServiceWorker serves the service worker from /kind/ so it may control
@@ -484,6 +504,7 @@ func (s *Server) kidServiceWorker(w http.ResponseWriter, r *http.Request) {
 // --- settings -----------------------------------------------------------
 
 type settingsData struct {
+	Profiles         []store.Profile
 	Nintendo         bool
 	NintendoAccounts []store.NintendoAccount
 	Notify           *notifyData
@@ -491,6 +512,7 @@ type settingsData struct {
 
 func (s *Server) settingsPage(w http.ResponseWriter, r *http.Request) {
 	data := settingsData{Nintendo: s.opts.Nintendo != nil, Notify: s.notifyData()}
+	data.Profiles, _ = s.store.Profiles()
 	if data.Nintendo {
 		accounts, err := s.store.NintendoAccounts()
 		if err != nil {
