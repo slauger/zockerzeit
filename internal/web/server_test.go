@@ -636,6 +636,47 @@ func TestHistoryGames(t *testing.T) {
 	}
 }
 
+func TestGamesPage(t *testing.T) {
+	e := newEnv(t, "")
+	if _, body := e.get("/spiele"); !strings.Contains(body, "keine Spielzeit gemeldet") {
+		t.Fatal("empty games page hint missing")
+	}
+	now := time.Now().In(berlin)
+	if err := demo.SeedNintendo(e.store, now); err != nil {
+		t.Fatal(err)
+	}
+	// An unmapped user (a parent) and an unknown game.
+	_ = e.store.UpsertNintendoPlayer(store.NintendoPlayer{PlayerID: "papa", DeviceID: "demo-switch-1", Nickname: "Papa"})
+	_ = e.store.UpsertNintendoUsage(store.NintendoUsage{Date: now.AddDate(0, 0, -20).Format("2006-01-02"), DeviceID: "demo-switch-1", PlayerID: "papa", Minutes: 9,
+		Games: []store.NintendoGame{{ApplicationID: "0100FFFF", Minutes: 9}}})
+	_, body := e.get("/spiele")
+	for _, want := range []string{"Inselabenteuer", "<strong>Max</strong>", "<strong>Mia</strong>", "<strong>Andere</strong>", "Unbekanntes Spiel", "zuletzt heute", "Switch Kinderzimmer", "insgesamt"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("games page misses %q", want)
+		}
+	}
+	_, body = e.get("/spiele?zeitraum=7")
+	if strings.Contains(body, "Unbekanntes Spiel") || !strings.Contains(body, "in diesem Zeitraum") {
+		t.Fatal("range filter not applied")
+	}
+	if _, body := e.get("/spiele?zeitraum=30"); !strings.Contains(body, `value="30" selected`) {
+		t.Fatal("30 days not selected")
+	}
+}
+
+func TestDaysAgo(t *testing.T) {
+	f := funcs(berlin)["daysAgo"].(func(time.Time) string)
+	now := time.Now().In(berlin)
+	for in, want := range map[time.Time]string{now: "heute", now.AddDate(0, 0, -1): "gestern", now.AddDate(0, 0, -5): "vor 5 Tagen"} {
+		if got := f(in); got != want {
+			t.Errorf("daysAgo(%v) = %q, want %q", in, got, want)
+		}
+	}
+	if got := f(time.Date(2020, 3, 1, 12, 0, 0, 0, berlin)); got != "01.03.2020" {
+		t.Errorf("old date = %q", got)
+	}
+}
+
 func TestNintendoDisabled(t *testing.T) {
 	e := newEnv(t, "")
 	if _, body := e.get("/einstellungen/nintendo"); !strings.Contains(body, "nicht eingerichtet") {

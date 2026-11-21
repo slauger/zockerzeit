@@ -98,7 +98,7 @@ func New(st *store.Store, eng Engine, opts Options, log *slog.Logger) (*Server, 
 			return nil, err
 		}
 	}
-	for _, page := range []string{"dashboard", "verlauf", "regeln", "geraete", "geraet", "protokoll", "einstellungen", "nintendo", "login", "kind"} {
+	for _, page := range []string{"dashboard", "verlauf", "regeln", "geraete", "geraet", "protokoll", "einstellungen", "nintendo", "spiele", "login", "kind"} {
 		t, err := template.New(page).Funcs(funcs(eng.Location())).ParseFS(templateFS, "templates/layout.html", "templates/"+page+".html")
 		if err != nil {
 			return nil, fmt.Errorf("template %s: %w", page, err)
@@ -135,6 +135,7 @@ func (s *Server) routes() {
 	m.Handle("GET /protokoll", s.auth(s.eventsPage))
 	m.Handle("GET /einstellungen", s.auth(s.settingsPage))
 	m.Handle("GET /bild/{key}", s.auth(s.image))
+	m.Handle("GET /spiele", s.auth(s.gamesPage))
 	m.Handle("GET /einstellungen/nintendo", s.auth(s.nintendoPage))
 	m.Handle("POST /einstellungen/nintendo/login", s.auth(s.nintendoLogin))
 	m.Handle("POST /einstellungen/nintendo/verbinden", s.auth(s.nintendoConnect))
@@ -296,6 +297,18 @@ func funcs(loc *time.Location) template.FuncMap {
 			return t.In(loc).Format("15:04")
 		},
 		"datetime": func(t time.Time) string { return t.In(loc).Format("02.01. 15:04") },
+		"daysAgo": func(t time.Time) string {
+			days := int(rules.StartOfDay(time.Now().In(loc)).Sub(rules.StartOfDay(t.In(loc))).Hours()/24 + 0.5)
+			switch {
+			case days <= 0:
+				return "heute"
+			case days == 1:
+				return "gestern"
+			case days < 14:
+				return fmt.Sprintf("vor %d Tagen", days)
+			}
+			return t.In(loc).Format("02.01.2006")
+		},
 		"pct": func(used time.Duration, limit int) int {
 			if limit <= 0 {
 				return 0

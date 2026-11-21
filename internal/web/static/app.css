@@ -421,6 +421,14 @@ label.check { flex-direction: row; align-items: center; gap: 0.45rem; color: var
 .game-bar { height: 8px; border-radius: 8px; background: var(--cell-off); overflow: hidden; }
 .game-bar span { display: block; height: 100%; border-radius: 8px; background: var(--series-1); }
 .game-details summary { cursor: pointer; font-weight: 700; color: var(--link); }
+.game-stats { max-width: 900px; gap: 1.1rem; }
+.game-stats img, .game-stats .game-cover { width: 64px; height: 64px; border-radius: 12px; }
+.game-facts { display: flex; flex-wrap: wrap; gap: 0.35rem 0.9rem; font-size: 0.92rem; }
+.game-kid { color: var(--text-muted); }
+.game-kid strong { color: var(--text); }
+.game-shelf { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 0.6rem; }
+.game-shelf li { display: flex; align-items: center; gap: 0.6rem; padding: 0.4rem 0.6rem; border-radius: 12px; background: var(--surface-2); }
+.game-shelf img, .game-cover.small { width: 40px; height: 40px; border-radius: 8px; flex: none; object-fit: cover; }
 .game-days { list-style: none; margin: 1rem 0 0; padding: 0; display: grid; gap: 0.9rem; max-width: 760px; }
 .game-days > li { display: flex; flex-direction: column; gap: 0.4rem; }
 .game-chips { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.4rem; }

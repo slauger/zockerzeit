@@ -382,3 +382,134 @@ func (s *Server) image(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "private, max-age=604800")
 	_, _ = w.Write(img.Data)
 }
+
+// gameStats is one game on the games page.
+type gameStats struct {
+	Name       string
+	ImageURI   string
+	Minutes    int
+	Percent    int
+	LastPlayed time.Time
+	Days       int
+	PerKid     []kidMinutes
+	Consoles   []string
+}
+
+type kidMinutes struct {
+	Name    string
+	Minutes int
+}
+
+type gamesData struct {
+	Range   string // "7", "30" or "alle"
+	Minutes int
+	Played  []gameStats
+	// Installed are known games without play time in the range.
+	Installed []gameStats
+}
+
+// othersLabel groups Nintendo users that are not mapped to a kid.
+const othersLabel = "Andere"
+
+func (s *Server) gamesPage(w http.ResponseWriter, r *http.Request) {
+	data := gamesData{Range: r.URL.Query().Get("zeitraum")}
+	now := s.engine.Now()
+	from := "0000-00-00"
+	switch data.Range {
+	case "7", "30":
+		days, _ := strconv.Atoi(data.Range)
+		from = now.AddDate(0, 0, 1-days).Format("2006-01-02")
+	default:
+		data.Range = "alle"
+	}
+	usage, err := s.store.NintendoUsageBetween(from, now.Format("2006-01-02"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	titles, _ := s.store.NintendoTitles()
+	images, _ := s.store.ImageKeys()
+	players, _ := s.store.NintendoPlayers()
+	profiles, _ := s.store.Profiles()
+	consoles := s.nintendoConsoleNames()
+	profileName := map[string]string{}
+	for _, p := range profiles {
+		profileName[p.ID] = p.Name
+	}
+	kidOf := map[string]string{}
+	for _, p := range players {
+		name := profileName[p.ProfileID]
+		if name == "" {
+			name = othersLabel
+		}
+		kidOf[p.DeviceID+"/"+p.PlayerID] = name
+	}
+
+	type acc struct {
+		gameStats
+		kids map[string]int
+		days map[string]bool
+	}
+	games := map[string]*acc{}
+	get := func(id string) *acc {
+		key := strings.ToUpper(id)
+		g := games[key]
+		if g == nil {
+			t := titles[key]
+			g = &acc{Name: t.Name, ImageURI: localImage(images, t.ImageURI), kids: map[string]int{}, days: map[string]bool{}}
+			if g.Name == "" {
+				g.Name = "Unbekanntes Spiel"
+			}
+			games[key] = g
+		}
+		return g
+	}
+	for _, u := range usage {
+		kid := kidOf[u.DeviceID+"/"+u.PlayerID]
+		if kid == "" {
+			kid = othersLabel
+		}
+		day, _ := time.ParseInLocation("2006-01-02", u.Date, s.engine.Location())
+		for _, gm := range u.Games {
+			if gm.Minutes == 0 {
+				continue
+			}
+			g := get(gm.ApplicationID)
+			g.Minutes += gm.Minutes
+			g.kids[kid] += gm.Minutes
+			g.days[u.Date] = true
+			if day.After(g.LastPlayed) {
+				g.LastPlayed = day
+			}
+			if c := consoles[u.DeviceID]; !slices.Contains(g.Consoles, c) {
+				g.Consoles = append(g.Consoles, c)
+			}
+		}
+	}
+	for key, t := range titles {
+		if _, ok := games[key]; !ok && t.Name != "" {
+			data.Installed = append(data.Installed, gameStats{Name: t.Name, ImageURI: localImage(images, t.ImageURI)})
+		}
+	}
+	for _, g := range games {
+		g.Days = len(g.days)
+		for name, m := range g.kids {
+			g.PerKid = append(g.PerKid, kidMinutes{Name: name, Minutes: m})
+		}
+		sort.Slice(g.PerKid, func(i, j int) bool { return g.PerKid[i].Minutes > g.PerKid[j].Minutes })
+		sort.Strings(g.Consoles)
+		data.Minutes += g.Minutes
+		data.Played = append(data.Played, g.gameStats)
+	}
+	sort.Slice(data.Played, func(i, j int) bool {
+		if data.Played[i].Minutes != data.Played[j].Minutes {
+			return data.Played[i].Minutes > data.Played[j].Minutes
+		}
+		return data.Played[i].Name < data.Played[j].Name
+	})
+	for i := range data.Played {
+		data.Played[i].Percent = max(data.Played[i].Minutes*100/data.Played[0].Minutes, 2)
+	}
+	sort.Slice(data.Installed, func(i, j int) bool { return data.Installed[i].Name < data.Installed[j].Name })
+	s.render(w, r, "spiele", "Spiele", data)
+}

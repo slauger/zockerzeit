@@ -1,0 +1,53 @@
+{{define "content"}}
+{{with .Data}}
+<div class="page-head">
+  <h1>Spiele</h1>
+</div>
+<p class="lead">Alle Spiele, die Nintendo von euren Konsolen gemeldet hat, mit der Spielzeit pro Kind. Gezählt wird ab dem Tag, an dem die Konsole mit der Jugendschutz-App verknüpft wurde.</p>
+
+<form method="get" action="/spiele" class="inline-form filters">
+  <label>Zeitraum
+    <select name="zeitraum" onchange="this.form.submit()">
+      <option value="7" {{if eq .Range "7"}}selected{{end}}>7 Tage</option>
+      <option value="30" {{if eq .Range "30"}}selected{{end}}>30 Tage</option>
+      <option value="alle" {{if eq .Range "alle"}}selected{{end}}>Seit Beginn</option>
+    </select>
+  </label>
+</form>
+
+<section class="card games">
+  <h2>Gespielt {{if .Minutes}}<span class="muted">{{dur (minutes .Minutes)}} insgesamt</span>{{end}}</h2>
+  {{if not .Played}}
+  <p class="muted">Im gewählten Zeitraum hat Nintendo keine Spielzeit gemeldet. Konsolen verbindest du unter <a href="/einstellungen/nintendo">Einstellungen → Nintendo</a>.</p>
+  {{else}}
+  <ol class="game-top game-stats">
+    {{range .Played}}
+    <li>
+      {{if .ImageURI}}<img src="{{.ImageURI}}" alt="" width="64" height="64" loading="lazy">{{else}}<span class="game-cover" aria-hidden="true">{{initial .Name}}</span>{{end}}
+      <div class="game-main">
+        <div class="game-line"><strong>{{.Name}}</strong><span>{{dur (minutes .Minutes)}}</span></div>
+        <div class="game-bar"><span style="width: {{.Percent}}%"></span></div>
+        <div class="game-facts">
+          {{range .PerKid}}<span class="game-kid"><strong>{{.Name}}</strong> {{dur (minutes .Minutes)}}</span>{{end}}
+          <span class="muted">zuletzt {{daysAgo .LastPlayed}}, an {{.Days}} {{if eq .Days 1}}Tag{{else}}Tagen{{end}}, {{range $i, $c := .Consoles}}{{if $i}}, {{end}}{{$c}}{{end}}</span>
+        </div>
+      </div>
+    </li>
+    {{end}}
+  </ol>
+  {{end}}
+</section>
+
+{{if .Installed}}
+<section class="card games">
+  <h2>Nicht gespielt {{if ne .Range "alle"}}in diesem Zeitraum{{end}}</h2>
+  <p class="muted small">Auf einer Konsole vorhanden oder früher gespielt, laut Nintendo ohne Spielzeit im gewählten Zeitraum.</p>
+  <ul class="game-shelf">
+    {{range .Installed}}
+    <li>{{if .ImageURI}}<img src="{{.ImageURI}}" alt="" width="40" height="40" loading="lazy">{{else}}<span class="game-cover small" aria-hidden="true">{{initial .Name}}</span>{{end}}<span>{{.Name}}</span></li>
+    {{end}}
+  </ul>
+</section>
+{{end}}
+{{end}}
+{{end}}
