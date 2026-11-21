@@ -97,11 +97,25 @@ func (s *Server) action(w http.ResponseWriter, r *http.Request) {
 			o.Until = tomorrow
 		}
 		msg = fmt.Sprintf("%s gesperrt bis %s", s.deviceName(mac), o.Until.Format("02.01. 15:04"))
+	case "lockdevice-next", "unlockdevice-next":
+		// Until the device's schedule flips next, e.g. the end of the current
+		// window or the start of the next one.
+		o.ProfileID = s.deviceProfile(mac)
+		o.DeviceMAC = mac
+		o.Until = s.nextChange(mac, now)
+		o.Minutes = int(o.Until.Sub(now).Minutes())
+		if kind == "lockdevice-next" {
+			o.Kind = store.KindLock
+			msg = fmt.Sprintf("%s gesperrt bis %s", s.deviceName(mac), o.Until.Format("02.01. 15:04"))
+		} else {
+			o.Kind = store.KindRelease
+			msg = fmt.Sprintf("%s freigegeben bis %s", s.deviceName(mac), o.Until.Format("02.01. 15:04"))
+		}
 	default:
 		redirectErr(w, r, back, errors.New("unbekannte Aktion"))
 		return
 	}
-	if o.ProfileID == "" || (o.Kind != store.KindLock && o.Kind != store.KindBonus && minutes <= 0) || (o.Kind == store.KindBonus && minutes == 0) {
+	if o.ProfileID == "" || (o.Kind != store.KindLock && o.Kind != store.KindBonus && o.Minutes <= 0) || (o.Kind == store.KindBonus && o.Minutes == 0) {
 		redirectErr(w, r, back, errors.New("bitte Profil und Minuten angeben"))
 		return
 	}
@@ -150,6 +164,25 @@ func (s *Server) applyNow(r *http.Request) {
 	if err := s.engine.Tick(r.Context()); err != nil {
 		s.log.Warn("immediate poll failed", "err", err)
 	}
+}
+
+// nextChange returns when the schedule of a device's owner flips next, or
+// tomorrow morning if it never does.
+func (s *Server) nextChange(mac string, now time.Time) time.Time {
+	devs, _ := s.store.Devices()
+	for _, d := range devs {
+		if d.MAC != mac {
+			continue
+		}
+		p, err := s.store.Profile(d.ProfileID)
+		if err != nil {
+			break
+		}
+		if t, ok := p.Rules(d.Type()).Schedule.NextChange(now); ok {
+			return t
+		}
+	}
+	return rules.StartOfDay(now).AddDate(0, 0, 1)
 }
 
 func (s *Server) profileName(id string) string {
@@ -656,6 +689,9 @@ type deviceDetailData struct {
 	Overrides []store.Override
 	Sessions  []stats.Session
 	Today     time.Duration
+	// NextChange is when the schedule of the device flips next.
+	NextChange time.Time
+	DryRun     bool
 }
 
 func (s *Server) deviceDetail(w http.ResponseWriter, r *http.Request) {
@@ -713,6 +749,8 @@ func (s *Server) deviceDetail(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	data.Sessions = stats.Sessions(mine, map[string]string{mac: data.Device.Name}, 3*time.Minute)
+	data.NextChange = s.nextChange(mac, now)
+	data.DryRun = s.engine.DryRun()
 	s.render(w, r, "geraet", data.Device.Name, data)
 }
 

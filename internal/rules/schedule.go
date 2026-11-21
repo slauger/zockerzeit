@@ -146,3 +146,30 @@ func (s Schedule) Next(t time.Time) (time.Time, bool) {
 	}
 	return time.Time{}, false
 }
+
+// NextChange returns when the schedule flips next after t: the end of the
+// current window, or the start of the next one. Back-to-back windows (such
+// as 20:00-24:00 followed by 00:00-07:00) count as one. ok is false if the
+// schedule never changes.
+func (s Schedule) NextChange(t time.Time) (time.Time, bool) {
+	at := func(d time.Time, m int) time.Time {
+		return time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, t.Location()).AddDate(0, 0, m/1440).
+			Add(time.Duration(m%1440) * time.Minute)
+	}
+	if _, inside := s.Current(t); !inside {
+		return s.Next(t)
+	}
+	cur := t
+	for range 8 * 48 {
+		w, ok := s.Current(cur)
+		if !ok {
+			return cur, true
+		}
+		end := at(cur, w.End)
+		if !end.After(cur) {
+			return time.Time{}, false
+		}
+		cur = end
+	}
+	return time.Time{}, false
+}

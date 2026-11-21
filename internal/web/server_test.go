@@ -195,6 +195,25 @@ func TestActions(t *testing.T) {
 			t.Fatalf("open redirect to %q", loc)
 		}
 	}
+	for _, kind := range []string{"unlockdevice-next", "lockdevice-next"} {
+		resp, err := e.client.PostForm(e.srv.URL+"/aktion", url.Values{"action": {kind}, "device": {"98:b6:e9:00:00:02"}, "back": {"/geraet/98:b6:e9:00:00:02"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		if loc := resp.Header.Get("Location"); !strings.Contains(loc, "ok=") {
+			t.Fatalf("%s failed: %q", kind, loc)
+		}
+	}
+	ovs, _ := e.store.ActiveOverrides(time.Now(), berlin)
+	for _, o := range ovs {
+		if o.DeviceMAC == "98:b6:e9:00:00:02" {
+			_ = e.store.EndOverride(o.ID, time.Now())
+			if !o.Until.After(time.Now()) {
+				t.Fatalf("override %s ends in the past", o.Kind)
+			}
+		}
+	}
 	e.client.CheckRedirect = nil
 	cases := []url.Values{
 		{"action": {"bonus"}, "profile": {"max"}, "minutes": {"15"}},
@@ -209,7 +228,7 @@ func TestActions(t *testing.T) {
 			t.Fatalf("action %v failed: %d", form, code)
 		}
 	}
-	ovs, _ := e.store.ActiveOverrides(time.Now(), berlin)
+	ovs, _ = e.store.ActiveOverrides(time.Now(), berlin)
 	if len(ovs) != 5 {
 		t.Fatalf("expected 5 overrides, got %d", len(ovs))
 	}

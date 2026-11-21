@@ -406,3 +406,21 @@ func TestPresenceEvents(t *testing.T) {
 		t.Fatal("formatSpan")
 	}
 }
+
+func TestDryRunAppliesManualDeviceOverrides(t *testing.T) {
+	h := newHarness(t, true)
+	h.clock = time.Date(2026, 11, 18, 20, 0, 0, 0, berlin)
+	h.ctrl.blocked["ip:01"] = true // blocked by hand in UniFi
+	h.tick()
+	if len(h.ctrl.calls) != 0 {
+		t.Fatalf("dry run must not act on its own: %v", h.ctrl.calls)
+	}
+	_, err := h.store.AddOverride(store.Override{Kind: store.KindRelease, ProfileID: "max", DeviceMAC: "ip:01", StartsAt: h.clock, Until: h.clock.Add(time.Hour)})
+	must(t, err)
+	_, err = h.store.AddOverride(store.Override{Kind: store.KindLock, ProfileID: "max", DeviceMAC: "sw:01", StartsAt: h.clock, Until: h.clock.Add(time.Hour)})
+	must(t, err)
+	h.tick()
+	if h.ctrl.blocked["ip:01"] || !h.ctrl.blocked["sw:01"] {
+		t.Fatalf("manual overrides must be applied in dry run, calls=%v", h.ctrl.calls)
+	}
+}

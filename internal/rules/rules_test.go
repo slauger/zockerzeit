@@ -214,3 +214,30 @@ func TestStartOfWeek(t *testing.T) {
 		}
 	}
 }
+
+func TestNextChange(t *testing.T) {
+	s := testSchedule()
+	if got, ok := s.NextChange(at(16, 0)); !ok || !got.Equal(at(18, 0)) {
+		t.Errorf("inside window: %v", got)
+	}
+	if got, _ := s.NextChange(at(12, 0)); !got.Equal(at(15, 0)) {
+		t.Errorf("outside window: %v", got)
+	}
+	night := Schedule{
+		time.Wednesday: {{Start: 20 * 60, End: 1440}},
+		time.Thursday:  {{Start: 0, End: 7 * 60}},
+	}
+	if got, _ := night.NextChange(at(21, 0)); !got.Equal(time.Date(2026, 11, 19, 7, 0, 0, 0, berlin)) {
+		t.Errorf("window over midnight: %v", got)
+	}
+	always := Schedule{}
+	for _, d := range Weekdays {
+		always[d] = []Window{{Start: 0, End: 1440}}
+	}
+	if _, ok := always.NextChange(at(12, 0)); ok {
+		t.Error("a schedule without gaps never changes")
+	}
+	if _, ok := (Schedule{}).NextChange(at(12, 0)); ok {
+		t.Error("an empty schedule never changes")
+	}
+}

@@ -33,7 +33,19 @@
   </ul>
   {{end}}
 
+  {{if and $d.DryRun (ne $d.State.Blocked $d.State.WantBlocked)}}
+  <p class="banner warn">Testmodus: In UniFi ist das Gerät {{if $d.State.Blocked}}gesperrt, nach Zeitplan wäre es frei{{else}}frei, nach Zeitplan wäre es gesperrt{{end}}. Zockerzeit ändert das nicht automatisch, die Knöpfe hier wirken aber.</p>
+  {{end}}
+
   <div class="detail-actions">
+    <div class="control-group">
+      <h2>Bis zum nächsten Wechsel</h2>
+      <p class="muted">Gilt bis {{datetime $d.NextChange}} Uhr, danach greift wieder der Zeitplan.</p>
+      <div class="buttons">
+        <form method="post" action="/aktion"><input type="hidden" name="back" value="{{$back}}"><input type="hidden" name="action" value="unlockdevice-next"><input type="hidden" name="device" value="{{$d.Device.MAC}}"><button class="primary">Freigeben</button></form>
+        <form method="post" action="/aktion"><input type="hidden" name="back" value="{{$back}}"><input type="hidden" name="action" value="lockdevice-next"><input type="hidden" name="device" value="{{$d.Device.MAC}}"><button class="danger strong">Sperren</button></form>
+      </div>
+    </div>
     <div class="control-group">
       <h2>Sperren</h2>
       <p class="muted">Nur dieses Gerät, die anderen bleiben, wie sie sind.</p>

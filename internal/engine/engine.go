@@ -45,15 +45,17 @@ type Options struct {
 
 // DeviceState is the live state of a managed device.
 type DeviceState struct {
-	Device       store.Device `json:"device"`
-	Online       bool         `json:"online"`
-	Active       bool         `json:"active"`
-	Blocked      bool         `json:"blocked"`
-	WantBlocked  bool         `json:"wantBlocked"`
-	Reason       string       `json:"reason"`
-	AttributedTo string       `json:"attributedTo"`
-	APName       string       `json:"apName"`
-	ESSID        string       `json:"essid"`
+	Device      store.Device `json:"device"`
+	Online      bool         `json:"online"`
+	Active      bool         `json:"active"`
+	Blocked     bool         `json:"blocked"`
+	WantBlocked bool         `json:"wantBlocked"`
+	// Manual is true while a parent override for this device decides.
+	Manual       bool   `json:"manual"`
+	Reason       string `json:"reason"`
+	AttributedTo string `json:"attributedTo"`
+	APName       string `json:"apName"`
+	ESSID        string `json:"essid"`
 }
 
 // ProfileView combines a profile with its current status.
@@ -314,7 +316,7 @@ func (e *Engine) tick(ctx context.Context, now time.Time) error {
 	var errs []error
 	for _, d := range devices {
 		ds := states[d.MAC]
-		ds.WantBlocked, ds.Reason = decide(d, statuses, ovs, now)
+		ds.WantBlocked, ds.Reason, ds.Manual = decide(d, statuses, ovs, now)
 		if err := e.enforce(ctx, ds, now); err != nil {
 			errs = append(errs, err)
 		}
@@ -449,24 +451,25 @@ func attributedProfile(d store.Device, ovs []store.Override) string {
 	return d.ProfileID
 }
 
-// decide returns whether a device should be blocked and why.
-func decide(d store.Device, statuses map[string]ProfileView, ovs []store.Override, now time.Time) (bool, string) {
+// decide returns whether a device should be blocked, why, and whether a
+// manual parent override for the device is the reason.
+func decide(d store.Device, statuses map[string]ProfileView, ovs []store.Override, now time.Time) (bool, string, bool) {
 	for _, o := range ovs {
 		if o.DeviceMAC == d.MAC && o.Kind == store.KindLock {
-			return true, "Gerät gesperrt bis " + o.Until.Format("15:04")
+			return true, "Gerät gesperrt bis " + o.Until.Format("15:04"), true
 		}
 	}
 	for _, o := range ovs {
 		if o.DeviceMAC == d.MAC && o.Kind == store.KindRelease {
-			return false, fmt.Sprintf("Freigabe bis %s (noch %d Min)", o.Until.Format("15:04"), int(o.Until.Sub(now).Minutes()+0.5))
+			return false, fmt.Sprintf("Freigabe bis %s (noch %d Min)", o.Until.Format("15:04"), int(o.Until.Sub(now).Minutes()+0.5)), true
 		}
 	}
 	v, ok := statuses[d.ProfileID]
 	if !ok {
-		return false, "Kein Profil"
+		return false, "Kein Profil", false
 	}
 	st := v.Status(d.Type())
-	return !st.Allowed, st.Reason
+	return !st.Allowed, st.Reason, false
 }
 
 func (e *Engine) enforce(ctx context.Context, ds *DeviceState, now time.Time) error {
@@ -482,7 +485,9 @@ func (e *Engine) enforce(ctx context.Context, ds *DeviceState, now time.Time) er
 	if want {
 		verb = "gesperrt"
 	}
-	if e.opts.DryRun {
+	// Test mode only simulates automatic decisions. What a parent explicitly
+	// set for a device is applied.
+	if e.opts.DryRun && !ds.Manual {
 		if !known || prev != want {
 			e.event(now, ds.Device, "dryrun", fmt.Sprintf("%s würde %s (Testmodus): %s", ds.Device.Name, verb, ds.Reason))
 		}

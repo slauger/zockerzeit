@@ -55,7 +55,7 @@
     <li><a href="/geraet/{{.Device.MAC}}" class="chip {{if .Blocked}}blocked{{else if .Active}}active{{else if .Online}}online{{else}}offline{{end}}">
       <span class="dot" aria-hidden="true"></span>
       <span class="chip-name">{{.Device.Name}}</span>
-      <span class="chip-state">{{if .Blocked}}gesperrt{{else if .Active}}spielt{{if .APName}}, {{.APName}}{{end}}{{else if .Online}}online{{if .APName}}, {{.APName}}{{end}}{{else}}aus{{end}}{{if ne .AttributedTo $p.ID}}, für {{.AttributedTo}}{{end}}</span>
+      <span class="chip-state">{{if .Blocked}}gesperrt{{else if .Active}}spielt{{if .APName}}, {{.APName}}{{end}}{{else if .Online}}online{{if .APName}}, {{.APName}}{{end}}{{else}}aus{{end}}{{if ne .AttributedTo $p.ID}}, für {{.AttributedTo}}{{end}}{{if and $.DryRun (ne .Blocked .WantBlocked)}}, würde {{if .WantBlocked}}sperren{{else}}freigeben{{end}}{{end}}</span>
     </a></li>
     {{end}}
   </ul>
