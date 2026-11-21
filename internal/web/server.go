@@ -132,6 +132,7 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /logout", s.logout)
 	m.HandleFunc("GET /kind/{id}", s.kidPage)
 	m.HandleFunc("GET /kind/{id}/manifest.webmanifest", s.kidManifest)
+	m.HandleFunc("GET /kind/{id}/bild/{key}", s.kidImage)
 	m.HandleFunc("GET /kind/sw.js", s.kidServiceWorker)
 	m.HandleFunc("GET /api/kind/{id}", s.kidAPI)
 

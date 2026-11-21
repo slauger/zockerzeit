@@ -650,7 +650,10 @@ func atoiDefault(s string, def int) int {
 // --- kid view -----------------------------------------------------------
 
 type kidData struct {
-	View engine.ProfileView
+	View   engine.ProfileView
+	Window string
+	Stats  kidStats
+	Ranges []struct{ Value, Label string }
 }
 
 func (s *Server) kidView(id string) (engine.ProfileView, bool) {
@@ -672,7 +675,20 @@ func (s *Server) kidPage(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	s.render(w, r, "kind", v.Profile.Name, kidData{View: v})
+	now := s.engine.Now()
+	s.render(w, r, "kind", v.Profile.Name, kidData{
+		View: v, Window: kidWindow(v.Profile, now), Ranges: kidRanges,
+		Stats: s.kidStats(v.Profile, r.URL.Query().Get("zeitraum"), now),
+	})
+}
+
+// kidImage serves covers to the kid app, which has no parent session.
+func (s *Server) kidImage(w http.ResponseWriter, r *http.Request) {
+	if _, err := s.store.Profile(r.PathValue("id")); err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	s.image(w, r)
 }
 
 func (s *Server) kidAPI(w http.ResponseWriter, r *http.Request) {

@@ -11,35 +11,80 @@
 {{end}}
 
 {{define "content"}}
-{{with .Data.View}}
+{{with .Data}}
+{{$v := .View}}
 <div class="kid-app" data-kid>
-{{$v := .}}
-<section class="kid {{if .Console.Allowed}}is-allowed{{else}}is-paused{{end}}">
+<section class="kid {{if $v.Console.Allowed}}is-allowed{{else}}is-paused{{end}}">
   <header class="kid-head">
     <img class="kid-logo" src="/static/favicon.svg" alt="" width="44" height="44">
-    <h1>Hallo {{.Profile.Name}}!</h1>
+    <h1>Hallo {{$v.Profile.Name}}!</h1>
   </header>
 
   <div class="kid-main">
-    {{if .Console.Allowed}}
+    {{if $v.Console.Allowed}}
       <p class="kid-label">Du kannst noch</p>
-      <p class="kid-big">{{remaining .Console}}</p>
+      <p class="kid-big">{{remaining $v.Console}}</p>
       <p class="kid-label">zocken.</p>
     {{else}}
       <p class="kid-big">Pause</p>
-      <p class="kid-label">{{.Console.Reason}}</p>
+      <p class="kid-label">{{$v.Console.Reason}}</p>
     {{end}}
-    {{with cells .Console}}
+    {{with cells $v.Console}}
     <div class="energy kid-energy" aria-hidden="true">{{range .}}<span class="cell {{.}}"></span>{{end}}</div>
     {{end}}
-    {{if .Console.LimitToday}}<p class="kid-small">Heute {{dur .Console.UsedToday}} von {{.Console.LimitToday}} Min gezockt</p>{{end}}
-    {{if .Console.LimitWeek}}<p class="kid-small">Diese Woche {{dur .Console.UsedWeek}} von {{dur (minutes .Console.LimitWeek)}}</p>{{end}}
+    {{if $v.Console.LimitToday}}<p class="kid-small">Heute {{dur $v.Console.UsedToday}} von {{$v.Console.LimitToday}} Min gezockt</p>{{end}}
+    {{if $v.Console.LimitWeek}}<p class="kid-small">Diese Woche {{dur $v.Console.UsedWeek}} von {{dur (minutes $v.Console.LimitWeek)}}</p>{{end}}
   </div>
 
-  {{if $v.HasType "phone"}}
-  <p class="kid-phone {{if .Phone.Allowed}}is-allowed{{else}}is-paused{{end}}">Handy: {{if .Phone.Allowed}}{{if .Phone.LimitToday}}noch {{remaining .Phone}}{{else}}frei{{end}}{{else}}{{.Phone.Reason}}{{end}}</p>
+  <ul class="kid-facts">
+    <li>{{if .Window}}Heute {{.Window}} Uhr{{else}}Heute keine Zockzeit{{end}}</li>
+    {{if $v.HasType "phone"}}
+    <li class="{{if $v.Phone.Allowed}}is-allowed{{else}}is-paused{{end}}">Handy: {{if $v.Phone.Allowed}}{{if $v.Phone.LimitToday}}noch {{remaining $v.Phone}}{{else}}frei{{end}}{{else}}{{$v.Phone.Reason}}{{end}}</li>
+    {{end}}
+  </ul>
+</section>
+
+{{with .Stats}}{{if .Linked}}
+<section class="kid-stats" id="statistik">
+  <h2>So viel hast du gezockt</h2>
+  <nav class="kid-tabs" aria-label="Zeitraum">
+    {{$cur := .Range}}
+    {{range $.Data.Ranges}}<a href="?zeitraum={{.Value}}#statistik" {{if eq .Value $cur}}aria-current="page"{{end}}>{{.Label}}</a>{{end}}
+  </nav>
+
+  <dl class="kid-numbers">
+    <div><dt>{{if eq .Range "heute"}}Heute{{else}}Zusammen{{end}}</dt><dd>{{dur (minutes .Minutes)}}</dd></div>
+    {{if ne .Range "heute"}}
+    <div><dt>Pro Tag</dt><dd>{{dur (minutes .PerDay)}}</dd></div>
+    <div><dt>Tage gezockt</dt><dd>{{.DaysPlayed}}</dd></div>
+    {{end}}
+  </dl>
+
+  {{if .Bars}}
+  <div class="kid-chart{{if gt (len .Bars) 14}} is-dense{{end}}" role="img" aria-label="Spielzeit {{if eq .Range "alle"}}pro Woche oder Monat{{else}}pro Tag{{end}}">
+    {{if .LimitPct}}<span class="kid-limit" style="--p: {{.LimitPct}}"><em>{{.Limit}} Min</em></span>{{end}}
+    {{range .Bars}}<div class="kid-bar{{if .Current}} is-current{{end}}{{if .Over}} is-over{{end}}" title="{{.Title}}"><span class="kid-col"><span style="height: {{.Percent}}%"></span></span><small>{{.Label}}</small></div>{{end}}
+  </div>
+  {{end}}
+
+  {{if .Games}}
+  <ol class="kid-games">
+    {{range .Games}}
+    <li>
+      {{if .ImageURI}}<img src="{{.ImageURI}}" alt="" width="56" height="56" loading="lazy">{{else}}<span class="game-cover" aria-hidden="true">{{initial .Name}}</span>{{end}}
+      <div class="game-main">
+        <div class="game-line"><strong>{{.Name}}</strong><span>{{dur (minutes .Minutes)}}</span></div>
+        <div class="game-bar"><span style="width: {{.Percent}}%"></span></div>
+        {{if ne $cur "heute"}}<span class="kid-small">zuletzt {{daysAgo .LastPlayed}}</span>{{end}}
+      </div>
+    </li>
+    {{end}}
+  </ol>
+  {{else}}
+  <p class="kid-empty">{{if eq .Range "heute"}}Heute hast du noch nicht gezockt.{{else}}In dieser Zeit hast du nicht gezockt.{{end}}</p>
   {{end}}
 </section>
+{{end}}{{end}}
 </div>
 <p class="kid-stamp" id="kid-stamp"></p>
 {{end}}

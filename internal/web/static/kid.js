@@ -15,7 +15,7 @@
   // single source of truth for the layout.
   async function refresh() {
     try {
-      const res = await fetch(location.pathname, { cache: "no-store" });
+      const res = await fetch(location.pathname + location.search, { cache: "no-store" });
       if (!res.ok) throw new Error(res.status);
       const doc = new DOMParser().parseFromString(await res.text(), "text/html");
       const next = doc.querySelector("[data-kid]");

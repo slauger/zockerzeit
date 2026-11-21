@@ -337,6 +337,8 @@ type gameRow struct {
 	Minutes  int
 	Percent  int // share of the most played game, for the bar width
 	Consoles []string
+	// LastPlayed is the last day in the period the game was played.
+	LastPlayed time.Time
 }
 
 type gameDay struct {
@@ -401,6 +403,9 @@ func (s *Server) nintendoGames(profileID string, from, to time.Time) gamesView {
 				top[key] = row
 			}
 			row.Minutes += g.Minutes
+			if day.Date.After(row.LastPlayed) {
+				row.LastPlayed = day.Date
+			}
 			if !slices.Contains(row.Consoles, console) {
 				row.Consoles = append(row.Consoles, console)
 			}

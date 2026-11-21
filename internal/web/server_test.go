@@ -769,3 +769,69 @@ func TestNintendoDisabled(t *testing.T) {
 		t.Fatal("login without Nintendo should fail")
 	}
 }
+
+func TestKidStats(t *testing.T) {
+	e := newEnv(t, "pw")
+	if _, body := e.get("/kind/max"); strings.Contains(body, "So viel hast du gezockt") {
+		t.Fatal("stats without Nintendo")
+	}
+	now := time.Now().In(berlin)
+	if err := demo.SeedNintendo(e.store, now); err != nil {
+		t.Fatal(err)
+	}
+	cases := map[string][]string{
+		"":                  {"So viel hast du gezockt", `href="?zeitraum=heute#statistik" aria-current="page"`, "Inselabenteuer"},
+		"?zeitraum=7":       {`href="?zeitraum=7#statistik" aria-current="page"`, "Pro Tag", "kid-bar", "kid-limit", "zuletzt heute"},
+		"?zeitraum=30":      {`href="?zeitraum=30#statistik" aria-current="page"`, "is-dense"},
+		"?zeitraum=alle":    {`href="?zeitraum=alle#statistik" aria-current="page"`, "Woche ab"},
+		"?zeitraum=quatsch": {`href="?zeitraum=heute#statistik" aria-current="page"`},
+	}
+	for q, wants := range cases {
+		code, body := e.get("/kind/max" + q)
+		if code != http.StatusOK {
+			t.Fatalf("%s: %d", q, code)
+		}
+		for _, want := range wants {
+			if !strings.Contains(body, want) {
+				t.Errorf("%s misses %q", q, want)
+			}
+		}
+	}
+
+	// Long history is shown per month, at most a year.
+	old := now.AddDate(-2, 0, 0).Format("2006-01-02")
+	_ = e.store.UpsertNintendoUsage(store.NintendoUsage{Date: old, DeviceID: "demo-switch-1", PlayerID: "demo-max", Minutes: 30,
+		Games: []store.NintendoGame{{ApplicationID: "0100DEMO0001", Minutes: 30}}})
+	_ = e.store.AddNintendoPlay([]store.NintendoPlay{{Date: old, DeviceID: "demo-switch-1", PlayerID: "demo-max", ProfileID: "max", Minutes: 30, TS: now}})
+	_, body := e.get("/kind/max?zeitraum=alle")
+	if got := strings.Count(body, `class="kid-bar`); got != maxMonthBars || !strings.Contains(body, monthNames[now.Month()-1]+" ") {
+		t.Fatalf("month bars: %d", got)
+	}
+
+	// Covers are served to the kid app without a parent session.
+	src := "https://example.invalid/cover.png"
+	if err := e.store.SaveImage(store.Image{Source: src, ContentType: "image/png", Data: []byte("png"), Fetched: now}); err != nil {
+		t.Fatal(err)
+	}
+	key := store.ImageKey(src)
+	if code, body := e.get("/kind/max/bild/" + key); code != http.StatusOK || body != "png" {
+		t.Fatalf("kid image: %d", code)
+	}
+	if code, _ := e.get("/kind/niemand/bild/" + key); code != http.StatusNotFound {
+		t.Fatalf("kid image of unknown kid: %d", code)
+	}
+	if _, body := e.get("/bild/" + key); body == "png" {
+		t.Fatal("parent image route open without login")
+	}
+}
+
+func TestKidWindow(t *testing.T) {
+	now := time.Date(2026, 11, 23, 12, 0, 0, 0, berlin) // a Monday
+	p := store.Profile{Console: store.RuleSet{Schedule: rules.Schedule{time.Monday: {{Start: 540, End: 720}, {Start: 900, End: 1140}}}}}
+	if got := kidWindow(p, now); got != "09:00 bis 12:00, 15:00 bis 19:00" {
+		t.Fatalf("window %q", got)
+	}
+	if got := kidWindow(p, now.AddDate(0, 0, 1)); got != "" {
+		t.Fatalf("no window %q", got)
+	}
+}
