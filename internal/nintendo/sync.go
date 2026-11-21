@@ -23,6 +23,9 @@ type Syncer struct {
 	interval time.Duration
 	now      func() time.Time
 
+	// Location decides which calendar day is today. Defaults to time.Local.
+	Location *time.Location
+
 	mu       sync.Mutex
 	accounts map[int64]*Account
 }
@@ -32,7 +35,7 @@ func NewSyncer(st *store.Store, client *Client, box *secret.Box, interval time.D
 	if interval <= 0 {
 		interval = 5 * time.Minute
 	}
-	return &Syncer{store: st, client: client, box: box, log: log, interval: interval, now: time.Now, accounts: map[int64]*Account{}}
+	return &Syncer{store: st, client: client, box: box, log: log, interval: interval, now: time.Now, accounts: map[int64]*Account{}, Location: time.Local}
 }
 
 // LoginURL starts the connection of an account.
@@ -107,7 +110,73 @@ func (s *Syncer) SyncAll(ctx context.Context) {
 			s.log.Error("storing Nintendo sync state failed", "err", err)
 		}
 	}
+	if err := Attribute(s.store, s.now(), s.Location); err != nil {
+		s.log.Error("attributing Nintendo play time failed", "err", err)
+	}
 	s.cacheImages(ctx)
+}
+
+// Attribute assigns play time that arrived since the last sync to a kid:
+// today to whoever has the console right now ("ist jetzt bei"), otherwise
+// to the kid the console belongs to. Consoles without a managed device fall
+// back to the kid the Nintendo user is mapped to; time nobody can be found
+// for stays open until a mapping exists.
+func Attribute(st *store.Store, now time.Time, loc *time.Location) error {
+	open, err := st.NintendoUnattributed()
+	if err != nil || len(open) == 0 {
+		return err
+	}
+	consoles, err := st.NintendoDevices()
+	if err != nil {
+		return err
+	}
+	managed, err := st.Devices()
+	if err != nil {
+		return err
+	}
+	players, err := st.NintendoPlayers()
+	if err != nil {
+		return err
+	}
+	ovs, err := st.ActiveOverrides(now, loc)
+	if err != nil {
+		return err
+	}
+	macOf := map[string]string{}
+	for _, c := range consoles {
+		macOf[c.DeviceID] = c.DeviceMAC
+	}
+	owner := map[string]string{}
+	for _, d := range managed {
+		owner[d.MAC] = d.ProfileID
+	}
+	borrowed := map[string]string{}
+	for _, o := range ovs {
+		if o.Kind == store.KindRelease && o.DeviceMAC != "" {
+			borrowed[o.DeviceMAC] = o.ProfileID
+		}
+	}
+	mapped := map[string]string{}
+	for _, p := range players {
+		mapped[p.DeviceID+"/"+p.PlayerID] = p.ProfileID
+	}
+	today := now.In(loc).Format("2006-01-02")
+	plays := make([]store.NintendoPlay, 0, len(open))
+	for _, u := range open {
+		mac := macOf[u.DeviceID]
+		profile := owner[mac]
+		if b := borrowed[mac]; b != "" && u.Date == today {
+			profile = b
+		}
+		if mac == "" || profile == "" {
+			profile = mapped[u.DeviceID+"/"+u.PlayerID]
+		}
+		if profile == "" {
+			continue
+		}
+		plays = append(plays, store.NintendoPlay{TS: now, Date: u.Date, DeviceID: u.DeviceID, PlayerID: u.PlayerID, ProfileID: profile, Minutes: u.Minutes})
+	}
+	return st.AddNintendoPlay(plays)
 }
 
 // cacheImages copies covers and avatars that are not stored yet into the

@@ -162,14 +162,14 @@ func (h *harness) profile(id string) ProfileView {
 	return ProfileView{}
 }
 
-// nintendo stores Nintendo play time of a profile for the harness day.
+// nintendo stores Nintendo play time of a profile for the harness day, as
+// the syncer attributes it.
 func (h *harness) nintendo(profileID string, minutes int) {
 	h.t.Helper()
-	player := "player-" + profileID
-	must(h.t, h.store.UpsertNintendoDevice(store.NintendoDevice{DeviceID: "nx", Account: 1, Label: "Switch"}))
-	must(h.t, h.store.UpsertNintendoPlayer(store.NintendoPlayer{PlayerID: player, DeviceID: "nx", Nickname: profileID}))
-	must(h.t, h.store.SetNintendoPlayerProfile(player, profileID))
-	must(h.t, h.store.UpsertNintendoUsage(store.NintendoUsage{Date: h.clock.Format("2006-01-02"), DeviceID: "nx", PlayerID: player, Minutes: minutes}))
+	date := h.clock.Format("2006-01-02")
+	have, err := h.store.NintendoMinutes(profileID, date, date)
+	must(h.t, err)
+	must(h.t, h.store.AddNintendoPlay([]store.NintendoPlay{{TS: h.clock, Date: date, DeviceID: "nx", PlayerID: profileID, ProfileID: profileID, Minutes: minutes - have}}))
 }
 
 func TestConsoleTimeFromNintendoNeverBlocks(t *testing.T) {

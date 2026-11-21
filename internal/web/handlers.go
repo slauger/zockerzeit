@@ -89,7 +89,11 @@ func (s *Server) action(w http.ResponseWriter, r *http.Request) {
 		o.Kind = store.KindRelease
 		o.DeviceMAC = mac
 		o.Until = now.Add(time.Duration(minutes) * time.Minute)
-		msg = fmt.Sprintf("%s für %s freigegeben (%d Min)", s.deviceName(mac), s.profileName(profileID), minutes)
+		if minutes <= 0 {
+			o.Until = tomorrow
+			o.Minutes = int(tomorrow.Sub(now).Minutes())
+		}
+		msg = fmt.Sprintf("%s ist bis %s bei %s", s.deviceName(mac), o.Until.Format("15:04"), s.profileName(profileID))
 	case "lockdevice":
 		o.Kind = store.KindLock
 		o.DeviceMAC = mac

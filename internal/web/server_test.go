@@ -17,6 +17,7 @@ import (
 
 	"github.com/slauger/zockerzeit/internal/demo"
 	"github.com/slauger/zockerzeit/internal/engine"
+	"github.com/slauger/zockerzeit/internal/nintendo"
 	"github.com/slauger/zockerzeit/internal/rules"
 	"github.com/slauger/zockerzeit/internal/store"
 )
@@ -78,7 +79,7 @@ func TestPagesRender(t *testing.T) {
 	e := newEnv(t, "")
 	for path, want := range map[string]string{
 		"/":                              "Mehr Zeit",
-		"/geraet/98:b6:e9:00:00:01":      "Für Mia freigeben",
+		"/geraet/98:b6:e9:00:00:01":      "Ist jetzt bei Mia",
 		"/verlauf":                       "Im WLAN pro Tag",
 		"/regeln":                        "Neues Profil",
 		"/geraete":                       "Switch Kinderzimmer",
@@ -223,6 +224,7 @@ func TestActions(t *testing.T) {
 		{"action": {"allow"}, "profile": {"max"}, "minutes": {"30"}},
 		{"action": {"lock"}, "profile": {"mia"}, "minutes": {"0"}},
 		{"action": {"release"}, "profile": {"mia"}, "device": {"98:b6:e9:00:00:01"}, "minutes": {"30"}},
+		{"action": {"release"}, "profile": {"mia"}, "device": {"98:b6:e9:00:00:02"}, "minutes": {"0"}},
 		{"action": {"lockdevice"}, "device": {"3a:10:5f:00:00:03"}, "minutes": {"60"}},
 	}
 	for _, form := range cases {
@@ -232,8 +234,8 @@ func TestActions(t *testing.T) {
 		}
 	}
 	ovs, _ = e.store.ActiveOverrides(time.Now(), berlin)
-	if len(ovs) != 5 {
-		t.Fatalf("expected 5 overrides, got %d", len(ovs))
+	if len(ovs) != 6 {
+		t.Fatalf("expected 6 overrides, got %d", len(ovs))
 	}
 
 	var status struct {
@@ -630,6 +632,10 @@ func TestHistoryGames(t *testing.T) {
 			u.Minutes = 0
 			_ = e.store.UpsertNintendoUsage(u)
 		}
+	}
+	// Nintendo corrected the days downwards: the next sync attributes that too.
+	if err := nintendo.Attribute(e.store, now, berlin); err != nil {
+		t.Fatal(err)
 	}
 	if _, body := e.get("/verlauf?profil=max"); !strings.Contains(body, "nichts gespielt") {
 		t.Fatal("empty period notice missing")

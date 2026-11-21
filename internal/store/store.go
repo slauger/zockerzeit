@@ -251,6 +251,18 @@ var migrations = []string{
 	);`,
 	// Blocking follows the time windows only where a parent switched it on.
 	`ALTER TABLE devices ADD COLUMN schedule_block INTEGER NOT NULL DEFAULT 0;`,
+	// Nintendo play time as it arrives, attributed to a kid at that moment.
+	`CREATE TABLE nintendo_play (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		ts INTEGER NOT NULL,
+		date TEXT NOT NULL,
+		device_id TEXT NOT NULL,
+		player_id TEXT NOT NULL,
+		profile_id TEXT NOT NULL DEFAULT '',
+		minutes INTEGER NOT NULL
+	);
+	CREATE INDEX nintendo_play_key ON nintendo_play (date, device_id, player_id);
+	CREATE INDEX nintendo_play_profile ON nintendo_play (profile_id, date);`,
 }
 
 // Open opens (and migrates) the database at path. Use ":memory:" for tests.

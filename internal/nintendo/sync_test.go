@@ -100,3 +100,77 @@ func TestSyncer(t *testing.T) {
 		t.Fatal("account not removed")
 	}
 }
+
+func TestAttribute(t *testing.T) {
+	st, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = st.Close() }()
+	berlin, _ := time.LoadLocation("Europe/Berlin")
+	now := time.Date(2026, 11, 21, 15, 0, 0, 0, berlin)
+	today, yesterday := "2026-11-21", "2026-11-20"
+	check := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, id := range []string{"finn", "lea"} {
+		check(st.SaveProfile(store.Profile{ID: id, Name: id}))
+	}
+	check(st.SaveDevice(store.Device{MAC: "aa:00", Name: "Switch 2", ProfileID: "finn"}))
+	check(st.UpsertNintendoDevice(store.NintendoDevice{DeviceID: "OWNED", Account: 1, Label: "Switch 2"}))
+	check(st.SetNintendoDeviceMAC("OWNED", "aa:00"))
+	check(st.UpsertNintendoDevice(store.NintendoDevice{DeviceID: "LOOSE", Account: 1, Label: "Switch"}))
+	check(st.UpsertNintendoPlayer(store.NintendoPlayer{PlayerID: "P-LEA", DeviceID: "LOOSE", Nickname: "lea"}))
+	check(st.SetNintendoPlayerProfile("P-LEA", "lea"))
+
+	// Lea plays on Finn's console with her own user: counts for Finn.
+	check(st.UpsertNintendoUsage(store.NintendoUsage{Date: today, DeviceID: "OWNED", PlayerID: "P-LEA", Minutes: 20}))
+	// Unknown user on the console without owner: stays open.
+	check(st.UpsertNintendoUsage(store.NintendoUsage{Date: today, DeviceID: "LOOSE", PlayerID: "P-X", Minutes: 7}))
+	check(st.UpsertNintendoUsage(store.NintendoUsage{Date: today, DeviceID: "LOOSE", PlayerID: "P-LEA", Minutes: 5}))
+	check(Attribute(st, now, berlin))
+	minutes := func(profile, date string) int {
+		m, err := st.NintendoMinutes(profile, date, date)
+		check(err)
+		return m
+	}
+	if minutes("finn", today) != 20 || minutes("lea", today) != 5 {
+		t.Fatalf("finn=%d lea=%d", minutes("finn", today), minutes("lea", today))
+	}
+
+	// The console is with Lea now: new minutes of today count for her,
+	// late minutes of yesterday for the owner.
+	_, err = st.AddOverride(store.Override{Kind: store.KindRelease, ProfileID: "lea", DeviceMAC: "aa:00", StartsAt: now, Until: now.Add(time.Hour), Minutes: 60})
+	check(err)
+	check(st.UpsertNintendoUsage(store.NintendoUsage{Date: today, DeviceID: "OWNED", PlayerID: "P-LEA", Minutes: 50}))
+	check(st.UpsertNintendoUsage(store.NintendoUsage{Date: yesterday, DeviceID: "OWNED", PlayerID: "P-LEA", Minutes: 30}))
+	check(Attribute(st, now.Add(10*time.Minute), berlin))
+	if minutes("finn", today) != 20 || minutes("lea", today) != 35 || minutes("finn", yesterday) != 30 {
+		t.Fatalf("after borrowing: finn=%d lea=%d finn yesterday=%d", minutes("finn", today), minutes("lea", today), minutes("finn", yesterday))
+	}
+
+	// Nintendo corrects a day downwards.
+	check(st.UpsertNintendoUsage(store.NintendoUsage{Date: yesterday, DeviceID: "OWNED", PlayerID: "P-LEA", Minutes: 25}))
+	check(Attribute(st, now.Add(20*time.Minute), berlin))
+	if minutes("finn", yesterday) != 25 {
+		t.Fatalf("correction not applied: %d", minutes("finn", yesterday))
+	}
+	plays, _ := st.NintendoPlayBetween(yesterday, today)
+	if len(plays) != 5 {
+		t.Fatalf("plays = %+v", plays)
+	}
+
+	// Re-attributing a console after its mapping changed.
+	check(st.ResetNintendoPlay("OWNED"))
+	check(st.SetNintendoDeviceMAC("OWNED", ""))
+	check(st.UpsertNintendoPlayer(store.NintendoPlayer{PlayerID: "P-LEA", DeviceID: "OWNED", Nickname: "lea"}))
+	check(st.SetNintendoPlayerProfile("P-LEA", "lea"))
+	check(st.ResetNintendoPlayOfPlayer("P-LEA"))
+	check(Attribute(st, now.Add(30*time.Minute), berlin))
+	if minutes("lea", today) != 55 || minutes("finn", today) != 0 {
+		t.Fatalf("after reset: lea=%d finn=%d", minutes("lea", today), minutes("finn", today))
+	}
+}

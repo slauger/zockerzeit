@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/slauger/zockerzeit/internal/nintendo"
 	"github.com/slauger/zockerzeit/internal/rules"
 	"github.com/slauger/zockerzeit/internal/store"
 	"github.com/slauger/zockerzeit/internal/unifi"
@@ -236,5 +237,5 @@ func SeedNintendo(st *store.Store, now time.Time) error {
 			}
 		}
 	}
-	return nil
+	return nintendo.Attribute(st, now, now.Location())
 }

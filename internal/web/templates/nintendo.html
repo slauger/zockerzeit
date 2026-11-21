@@ -4,7 +4,7 @@
 <div class="page-head">
   <h1>Nintendo</h1>
 </div>
-<p class="lead">Spielzeit direkt aus der Nintendo-Jugendschutz-App, pro Konsole und pro Benutzer. So weiß Zockerzeit auch bei gemeinsam genutzten Konsolen, wer gespielt hat. Die Daten kommen alle zehn Minuten, aber nur, wenn die Konsole online ist.</p>
+<p class="lead">Spielzeit direkt aus der Nintendo-Jugendschutz-App. Ordne jede Konsole einem Gerät in Zockerzeit zu: Was darauf gespielt wird, zählt für das Kind, dem das Gerät gehört, egal mit welchem Benutzer. Hat ein anderes Kind die Konsole, drückst du auf der Geräteseite „Ist jetzt bei …“. Die Daten kommen alle zehn Minuten, aber nur, wenn die Konsole online ist.</p>
 
 {{if not $d.Enabled}}
 <div class="banner warn">Die Nintendo-Anbindung ist nicht eingerichtet: Sie braucht ein festes <code>ZOCKERZEIT_SESSION_SECRET</code>, mit dem die Zugangsdaten verschlüsselt werden.</div>
@@ -32,7 +32,7 @@
     <div class="nintendo-device-head">
       <div>
         <h3>{{.Label}} <span class="muted">{{.Model}}</span></h3>
-        <p class="muted">Heute {{dur (minutes .Today)}}</p>
+        <p class="muted">Heute {{dur (minutes .Today)}}{{if .Owner}}, zählt für <strong>{{.Owner}}</strong>{{end}}</p>
       </div>
       <form method="post" action="/einstellungen/nintendo/konsole" class="inline-form">
         <input type="hidden" name="device_id" value="{{.DeviceID}}">
@@ -51,6 +51,9 @@
       <li>
         {{if .ImageURI}}<img src="{{.ImageURI}}" alt="" width="40" height="40">{{else}}<span class="avatar small" aria-hidden="true">{{initial .Nickname}}</span>{{end}}
         <span class="player-name"><strong>{{.Nickname}}</strong><span class="muted">heute {{dur (minutes .Today)}}{{if .Games}}: {{range $i, $g := .Games}}{{if $i}}, {{end}}{{$g}}{{end}}{{end}}</span></span>
+        {{if $dev.Owner}}
+        <span class="muted small">zählt für {{$dev.Owner}}</span>
+        {{else}}
         <form method="post" action="/einstellungen/nintendo/spieler" class="inline-form">
           <input type="hidden" name="player_id" value="{{.PlayerID}}">
           <label>gehört zu
@@ -60,6 +63,7 @@
             </select>
           </label>
         </form>
+        {{end}}
       </li>
       {{end}}
     </ul>

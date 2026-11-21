@@ -97,6 +97,7 @@ func (s *Store) DeleteNintendoAccount(id int64) error {
 	}
 	for _, q := range []string{
 		`DELETE FROM nintendo_usage WHERE device_id IN (SELECT device_id FROM nintendo_devices WHERE account = ?)`,
+		`DELETE FROM nintendo_play WHERE device_id IN (SELECT device_id FROM nintendo_devices WHERE account = ?)`,
 		`DELETE FROM nintendo_players WHERE device_id IN (SELECT device_id FROM nintendo_devices WHERE account = ?)`,
 		`DELETE FROM nintendo_devices WHERE account = ?`,
 		`DELETE FROM nintendo_accounts WHERE id = ?`,
@@ -251,13 +252,99 @@ func (s *Store) NintendoUsageBetween(from, to string) ([]NintendoUsage, error) {
 	return s.nintendoUsage(`WHERE date >= ? AND date <= ? ORDER BY date DESC, minutes DESC`, from, to)
 }
 
-// NintendoMinutes sums the play time of all Nintendo users mapped to a
-// profile from..to (YYYY-MM-DD, inclusive).
+// NintendoPlay is play time that arrived from Nintendo between two syncs,
+// attributed to the kid who had the console at that time.
+type NintendoPlay struct {
+	TS        time.Time `json:"ts"`
+	Date      string    `json:"date"`
+	DeviceID  string    `json:"deviceId"`
+	PlayerID  string    `json:"playerId"`
+	ProfileID string    `json:"profileId"`
+	Minutes   int       `json:"minutes"`
+}
+
+// NintendoUnattributed returns, per day, console and user, the play time
+// Nintendo reported that is not attributed yet. Minutes can be negative when
+// Nintendo corrected a day downwards.
+func (s *Store) NintendoUnattributed() ([]NintendoUsage, error) {
+	rows, err := s.db.Query(`SELECT u.date, u.device_id, u.player_id,
+		u.minutes - COALESCE((SELECT SUM(p.minutes) FROM nintendo_play p
+			WHERE p.date = u.date AND p.device_id = u.device_id AND p.player_id = u.player_id AND p.profile_id <> ''), 0) AS open
+		FROM nintendo_usage u WHERE open <> 0 ORDER BY u.date`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []NintendoUsage
+	for rows.Next() {
+		var u NintendoUsage
+		if err := rows.Scan(&u.Date, &u.DeviceID, &u.PlayerID, &u.Minutes); err != nil {
+			return nil, err
+		}
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
+// AddNintendoPlay stores attributed play time.
+func (s *Store) AddNintendoPlay(plays []NintendoPlay) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	for _, p := range plays {
+		if _, err := tx.Exec(`INSERT INTO nintendo_play (ts, date, device_id, player_id, profile_id, minutes) VALUES (?, ?, ?, ?, ?, ?)`,
+			p.TS.Unix(), p.Date, p.DeviceID, p.PlayerID, p.ProfileID, p.Minutes); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// ResetNintendoPlay forgets how the play time of a console was attributed,
+// so it is attributed again under the current mapping.
+func (s *Store) ResetNintendoPlay(deviceID string) error {
+	_, err := s.db.Exec(`DELETE FROM nintendo_play WHERE device_id = ?`, deviceID)
+	return err
+}
+
+// ResetNintendoPlayOfPlayer does the same for a user on consoles that are
+// not mapped to a managed device, where the user mapping decides.
+func (s *Store) ResetNintendoPlayOfPlayer(playerID string) error {
+	_, err := s.db.Exec(`DELETE FROM nintendo_play WHERE player_id = ?
+		AND device_id IN (SELECT device_id FROM nintendo_devices WHERE device_mac = '')`, playerID)
+	return err
+}
+
+// NintendoPlayBetween returns the attributed play time from..to (YYYY-MM-DD,
+// inclusive), oldest first.
+func (s *Store) NintendoPlayBetween(from, to string) ([]NintendoPlay, error) {
+	rows, err := s.db.Query(`SELECT ts, date, device_id, player_id, profile_id, minutes FROM nintendo_play
+		WHERE date >= ? AND date <= ? ORDER BY ts, id`, from, to)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []NintendoPlay
+	for rows.Next() {
+		var p NintendoPlay
+		var ts int64
+		if err := rows.Scan(&ts, &p.Date, &p.DeviceID, &p.PlayerID, &p.ProfileID, &p.Minutes); err != nil {
+			return nil, err
+		}
+		p.TS = time.Unix(ts, 0)
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// NintendoMinutes sums the Nintendo play time attributed to a profile
+// from..to (YYYY-MM-DD, inclusive).
 func (s *Store) NintendoMinutes(profileID, from, to string) (int, error) {
 	var m int
-	err := s.db.QueryRow(`SELECT COALESCE(SUM(u.minutes), 0) FROM nintendo_usage u
-		JOIN nintendo_players p ON p.player_id = u.player_id AND p.device_id = u.device_id
-		WHERE p.profile_id = ? AND u.date >= ? AND u.date <= ?`, profileID, from, to).Scan(&m)
+	err := s.db.QueryRow(`SELECT COALESCE(SUM(minutes), 0) FROM nintendo_play
+		WHERE profile_id = ? AND date >= ? AND date <= ?`, profileID, from, to).Scan(&m)
 	return m, err
 }
 

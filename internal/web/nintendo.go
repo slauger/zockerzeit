@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/slauger/zockerzeit/internal/nintendo"
 	"github.com/slauger/zockerzeit/internal/store"
 	"github.com/slauger/zockerzeit/internal/unifi"
 )
@@ -24,6 +25,8 @@ type nintendoPlayerView struct {
 
 type nintendoDeviceView struct {
 	store.NintendoDevice
+	// Owner is the kid the console counts for, empty if it is not mapped.
+	Owner   string
 	Today   int
 	Players []nintendoPlayerView
 }
@@ -59,6 +62,10 @@ func (s *Server) nintendoPage(w http.ResponseWriter, r *http.Request) {
 	titles, _ := s.store.NintendoTitles()
 	images, _ := s.store.ImageKeys()
 	data.Profiles, _ = s.store.Profiles()
+	profileNames := map[string]string{}
+	for _, p := range data.Profiles {
+		profileNames[p.ID] = p.Name
+	}
 	managed, _ := s.store.Devices()
 	for _, d := range managed {
 		if d.Type() == store.TypeConsole {
@@ -72,6 +79,11 @@ func (s *Server) nintendoPage(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			dv := nintendoDeviceView{NintendoDevice: d}
+			for _, m := range managed {
+				if m.MAC == d.DeviceMAC {
+					dv.Owner = profileNames[m.ProfileID]
+				}
+			}
 			for _, p := range players {
 				if p.DeviceID != d.DeviceID {
 					continue
@@ -173,7 +185,12 @@ func (s *Server) nintendoMapDevice(w http.ResponseWriter, r *http.Request) {
 	if mac != "" {
 		mac = unifi.NormalizeMAC(mac)
 	}
-	if err := s.store.SetNintendoDeviceMAC(r.FormValue("device_id"), mac); err != nil {
+	id := r.FormValue("device_id")
+	if err := s.store.SetNintendoDeviceMAC(id, mac); err != nil {
+		redirectErr(w, r, "/einstellungen/nintendo", err)
+		return
+	}
+	if err := s.reattribute(s.store.ResetNintendoPlay(id)); err != nil {
 		redirectErr(w, r, "/einstellungen/nintendo", err)
 		return
 	}
@@ -181,11 +198,24 @@ func (s *Server) nintendoMapDevice(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) nintendoMapPlayer(w http.ResponseWriter, r *http.Request) {
-	if err := s.store.SetNintendoPlayerProfile(r.FormValue("player_id"), r.FormValue("profile")); err != nil {
+	id := r.FormValue("player_id")
+	if err := s.store.SetNintendoPlayerProfile(id, r.FormValue("profile")); err != nil {
+		redirectErr(w, r, "/einstellungen/nintendo", err)
+		return
+	}
+	if err := s.reattribute(s.store.ResetNintendoPlayOfPlayer(id)); err != nil {
 		redirectErr(w, r, "/einstellungen/nintendo", err)
 		return
 	}
 	redirect(w, r, "/einstellungen/nintendo", "Spieler zugeordnet")
+}
+
+// reattribute attributes the play time again after a mapping changed.
+func (s *Server) reattribute(resetErr error) error {
+	if resetErr != nil {
+		return resetErr
+	}
+	return nintendo.Attribute(s.store, s.engine.Now(), s.engine.Location())
 }
 
 // nintendoToday is the play time a profile had today according to Nintendo.
@@ -202,31 +232,86 @@ type nintendoPart struct {
 // nintendoByProfile sums today's Nintendo play time of mapped players.
 func (s *Server) nintendoByProfile() map[string]nintendoToday {
 	out := map[string]nintendoToday{}
-	usage, err := s.store.NintendoUsageOn(s.engine.Now().Format("2006-01-02"))
+	today := s.engine.Now().Format("2006-01-02")
+	usage, err := s.nintendoAttributed(today, today)
 	if err != nil || len(usage) == 0 {
 		return out
 	}
-	players, _ := s.store.NintendoPlayers()
 	label := s.nintendoConsoleNames()
-	profileOf := map[string]string{}
-	for _, p := range players {
-		profileOf[p.DeviceID+"/"+p.PlayerID] = p.ProfileID
-	}
 	for _, u := range usage {
-		pid := profileOf[u.DeviceID+"/"+u.PlayerID]
-		if pid == "" || u.Minutes == 0 {
+		if u.ProfileID == "" || u.Minutes <= 0 {
 			continue
 		}
-		t := out[pid]
+		t := out[u.ProfileID]
 		t.Minutes += u.Minutes
 		t.Parts = append(t.Parts, nintendoPart{Console: label[u.DeviceID], Minutes: u.Minutes})
-		out[pid] = t
+		out[u.ProfileID] = t
 	}
 	for k, t := range out {
 		sort.Slice(t.Parts, func(i, j int) bool { return t.Parts[i].Minutes > t.Parts[j].Minutes })
 		out[k] = t
 	}
 	return out
+}
+
+// attributedUsage is Nintendo play time of a user on a console and day,
+// split by the kid it was attributed to. Games are scaled to the share.
+type attributedUsage struct {
+	store.NintendoUsage
+	ProfileID string
+}
+
+// nintendoAttributed returns the play time from..to (YYYY-MM-DD) per kid.
+// Time that is not attributed yet has an empty ProfileID.
+func (s *Server) nintendoAttributed(from, to string) ([]attributedUsage, error) {
+	usage, err := s.store.NintendoUsageBetween(from, to)
+	if err != nil {
+		return nil, err
+	}
+	plays, err := s.store.NintendoPlayBetween(from, to)
+	if err != nil {
+		return nil, err
+	}
+	shares := map[string]map[string]int{}
+	for _, p := range plays {
+		key := p.Date + "/" + p.DeviceID + "/" + p.PlayerID
+		if shares[key] == nil {
+			shares[key] = map[string]int{}
+		}
+		shares[key][p.ProfileID] += p.Minutes
+	}
+	var out []attributedUsage
+	for _, u := range usage {
+		parts := shares[u.Date+"/"+u.DeviceID+"/"+u.PlayerID]
+		profiles := make([]string, 0, len(parts))
+		total := 0
+		for pid, m := range parts {
+			if m > 0 {
+				profiles = append(profiles, pid)
+				total += m
+			}
+		}
+		sort.Strings(profiles)
+		if total < u.Minutes {
+			profiles = append(profiles, "")
+			if parts == nil {
+				parts = map[string]int{}
+			}
+			parts[""] = u.Minutes - total
+			total = u.Minutes
+		}
+		for _, pid := range profiles {
+			m := parts[pid]
+			a := attributedUsage{Date: u.Date, DeviceID: u.DeviceID, PlayerID: u.PlayerID, Minutes: m, ProfileID: pid}
+			for _, g := range u.Games {
+				if gm := (g.Minutes*m + total/2) / total; gm > 0 {
+					a.Games = append(a.Games, store.NintendoGame{ApplicationID: g.ApplicationID, Minutes: gm})
+				}
+			}
+			out = append(out, a)
+		}
+	}
+	return out, nil
 }
 
 // gamesView is what a profile played according to Nintendo in a period.
@@ -260,18 +345,12 @@ type gameChip struct {
 // nintendoGames collects the games a profile played from..to (inclusive).
 func (s *Server) nintendoGames(profileID string, from, to time.Time) gamesView {
 	var v gamesView
-	players, _ := s.store.NintendoPlayers()
-	mine := map[string]bool{}
-	for _, p := range players {
-		if p.ProfileID == profileID {
-			mine[p.DeviceID+"/"+p.PlayerID] = true
-			v.Linked = true
-		}
-	}
+	consolesKnown, _ := s.store.NintendoDevices()
+	v.Linked = len(consolesKnown) > 0
 	if !v.Linked {
 		return v
 	}
-	usage, err := s.store.NintendoUsageBetween(from.Format("2006-01-02"), to.Format("2006-01-02"))
+	usage, err := s.nintendoAttributed(from.Format("2006-01-02"), to.Format("2006-01-02"))
 	if err != nil {
 		return v
 	}
@@ -288,7 +367,7 @@ func (s *Server) nintendoGames(profileID string, from, to time.Time) gamesView {
 	top := map[string]*gameRow{}
 	days := map[string]*gameDay{}
 	for _, u := range usage {
-		if !mine[u.DeviceID+"/"+u.PlayerID] || u.Minutes == 0 {
+		if u.ProfileID != profileID || u.Minutes <= 0 {
 			continue
 		}
 		v.Minutes += u.Minutes
@@ -422,27 +501,18 @@ func (s *Server) gamesPage(w http.ResponseWriter, r *http.Request) {
 	default:
 		data.Range = "alle"
 	}
-	usage, err := s.store.NintendoUsageBetween(from, now.Format("2006-01-02"))
+	usage, err := s.nintendoAttributed(from, now.Format("2006-01-02"))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	titles, _ := s.store.NintendoTitles()
 	images, _ := s.store.ImageKeys()
-	players, _ := s.store.NintendoPlayers()
 	profiles, _ := s.store.Profiles()
 	consoles := s.nintendoConsoleNames()
 	profileName := map[string]string{}
 	for _, p := range profiles {
 		profileName[p.ID] = p.Name
-	}
-	kidOf := map[string]string{}
-	for _, p := range players {
-		name := profileName[p.ProfileID]
-		if name == "" {
-			name = othersLabel
-		}
-		kidOf[p.DeviceID+"/"+p.PlayerID] = name
 	}
 
 	type acc struct {
@@ -465,7 +535,7 @@ func (s *Server) gamesPage(w http.ResponseWriter, r *http.Request) {
 		return g
 	}
 	for _, u := range usage {
-		kid := kidOf[u.DeviceID+"/"+u.PlayerID]
+		kid := profileName[u.ProfileID]
 		if kid == "" {
 			kid = othersLabel
 		}

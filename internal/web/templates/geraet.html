@@ -61,15 +61,16 @@
       </div>
     </div>
 
-    {{if and $d.Device.Shared $d.Others}}
+    {{if and (or $d.Device.Shared (eq $d.Device.Type "console")) $d.Others}}
     {{range $o := $d.Others}}
     <div class="control-group">
-      <h2>Für {{$o.Name}} freigeben</h2>
-      <p class="muted">Die Zeit zählt dann für {{$o.Name}}, nicht für {{$d.Owner.Name}}.</p>
+      <h2>Ist jetzt bei {{$o.Name}}</h2>
+      <p class="muted">Was in dieser Zeit auf {{$d.Device.Name}} gespielt wird, zählt für {{$o.Name}}, egal mit welchem Benutzer. Danach wieder für {{$d.Owner.Name}}.</p>
       <div class="buttons">
-        {{range $m := (list 15 30 60)}}
-        <form method="post" action="/aktion"><input type="hidden" name="back" value="{{$back}}"><input type="hidden" name="action" value="release"><input type="hidden" name="device" value="{{$d.Device.MAC}}"><input type="hidden" name="profile" value="{{$o.ID}}"><input type="hidden" name="minutes" value="{{$m}}"><button>{{if eq $m 60}}1 Std{{else}}{{$m}} Min{{end}}</button></form>
+        {{range $m := (list 60 120)}}
+        <form method="post" action="/aktion"><input type="hidden" name="back" value="{{$back}}"><input type="hidden" name="action" value="release"><input type="hidden" name="device" value="{{$d.Device.MAC}}"><input type="hidden" name="profile" value="{{$o.ID}}"><input type="hidden" name="minutes" value="{{$m}}"><button>{{if eq $m 60}}1 Std{{else}}2 Std{{end}}</button></form>
         {{end}}
+        <form method="post" action="/aktion"><input type="hidden" name="back" value="{{$back}}"><input type="hidden" name="action" value="release"><input type="hidden" name="device" value="{{$d.Device.MAC}}"><input type="hidden" name="profile" value="{{$o.ID}}"><input type="hidden" name="minutes" value="0"><button>Bis heute Abend</button></form>
       </div>
     </div>
     {{end}}
