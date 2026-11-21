@@ -99,7 +99,7 @@ func TestScheduleCurrentAndNext(t *testing.T) {
 }
 
 func TestEvaluate(t *testing.T) {
-	limits := Limits{DailyMinutes: 90, WeeklyMinutes: 300, Schedule: testSchedule()}
+	limits := Limits{DailyMinutes: 90, Schedule: testSchedule()}
 
 	tests := []struct {
 		name      string
@@ -133,16 +133,6 @@ func TestEvaluate(t *testing.T) {
 			name: "bonus extends daily quota", now: at(16, 0),
 			usage: Usage{Today: 90 * time.Minute, Week: 2 * time.Hour},
 			ov:    Overrides{BonusMinutes: 30}, allowed: true, reason: "Spielzeit", remaining: 30 * time.Minute,
-		},
-		{
-			name: "weekly quota exhausted", now: at(16, 0),
-			usage:   Usage{Today: 0, Week: 300 * time.Minute},
-			allowed: false, reason: "Wochenlimit erreicht",
-		},
-		{
-			name: "weekly quota is the bound", now: at(15, 0),
-			usage:   Usage{Today: 0, Week: 290 * time.Minute},
-			allowed: true, reason: "Spielzeit", remaining: 10 * time.Minute,
 		},
 		{
 			name: "lock wins over window", now: at(16, 0),
@@ -180,7 +170,7 @@ func TestEvaluateUnlimited(t *testing.T) {
 		everyDay[d] = []Window{{Start: 0, End: 1440}}
 	}
 	st := Evaluate(Limits{Schedule: everyDay}, Usage{Today: 10 * time.Hour}, Overrides{}, at(12, 0))
-	if !st.Allowed || st.LimitToday != 0 || st.LimitWeek != 0 {
+	if !st.Allowed || st.LimitToday != 0 {
 		t.Fatalf("unexpected status: %+v", st)
 	}
 	if st.Remaining != 12*time.Hour {

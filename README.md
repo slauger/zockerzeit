@@ -4,7 +4,7 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/slauger/zockerzeit)](https://goreportcard.com/report/github.com/slauger/zockerzeit)
 [![License](https://img.shields.io/github/license/slauger/zockerzeit)](LICENSE)
 
-Zockerzeit ("gaming time") is a self-hosted dashboard for parents that shows how long and what the kids play on their Nintendo Switch. It reads the play time per console, user and game from the Nintendo Switch parental controls, counts it per kid against time windows and daily or weekly limits, and notifies the parents when a kid starts playing, when the time is almost up or when a kid keeps playing after it.
+Zockerzeit ("gaming time") is a self-hosted dashboard for parents that shows how long and what the kids play on their Nintendo Switch. It reads the play time per console, user and game from the Nintendo Switch parental controls, counts it per kid against time windows and a daily limit, and notifies the parents when a kid starts playing, when the time is almost up or when a kid keeps playing after it.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/dashboard-dark.png">
@@ -13,7 +13,7 @@ Zockerzeit ("gaming time") is a self-hosted dashboard for parents that shows how
 
 - 🍄 **Nintendo play time** - connect one or more Nintendo accounts of the parental controls app. Every console belongs to a kid and everything played on it counts for that kid, whichever user is signed in
 - 🔁 **Lending** - a sibling borrows a console: one tap ("Ist jetzt bei ...") and the time counts for the sibling until the evening
-- 🎮 **Time windows and limits** - per kid, per weekday, daily and weekly, plus extra minutes for today
+- 🎮 **Time windows and limits** - per kid time windows per weekday and a daily limit, plus extra minutes for today and free time for holidays
 - 🕹️ **Games** - every game Nintendo reported with cover, play time per kid, last played and on which console
 - 📈 **History** - play time per day and console, when during the week the kids play
 - 🔔 **Notifications** - one Telegram bot for the family: every parent connects with one tap and chooses what to get (a kid starts playing, the time is almost up, a kid keeps playing after it). Optionally all messages to an ntfy topic
@@ -26,7 +26,7 @@ The web interface is in German.
 |---|---|
 | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/games-dark.png"><img alt="Games page with covers, play time per kid, last played and consoles" src="docs/images/games-light.png"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/history-dark.png"><img alt="History with play time per day and console and the games of the period" src="docs/images/history-light.png"></picture> |
 | **Rules** | **Consoles** |
-| <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/rules-dark.png"><img alt="Rules page with a 24 hour track per weekday and the daily and weekly limits" src="docs/images/rules-light.png"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/consoles-dark.png"><img alt="Consoles with owner, today's games and buttons to lend a console to a sibling" src="docs/images/consoles-light.png"></picture> |
+| <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/rules-dark.png"><img alt="Rules page with a 24 hour track per weekday and the daily limit" src="docs/images/rules-light.png"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/consoles-dark.png"><img alt="Consoles with owner, today's games and buttons to lend a console to a sibling" src="docs/images/consoles-light.png"></picture> |
 
 <img alt="Kid app showing the remaining time in large type and the play time of the last 7 days" src="docs/images/kid-app.png" width="280">
 
@@ -86,7 +86,7 @@ See the [chart README](charts/zockerzeit/README.md) for all values. Run a single
 ## Setup
 
 1. In the Nintendo Switch Parental Controls app link every console to one Nintendo account (one account can manage several consoles).
-2. **Regeln**: create a profile per kid with time windows (`15:00-18:30`) and daily or weekly limits.
+2. **Regeln**: create a profile per kid with time windows (`15:00-18:30`) and a daily limit.
 3. **Einstellungen → Nintendo**: connect the account(s). The consoles show up after the first fetch.
 4. **Konsolen**: choose the kid each console belongs to.
 5. **Einstellungen → Benachrichtigungen**: set up the Telegram bot once (create it with `@BotFather`, paste the token). Then every parent enters a name, ticks the messages they want and taps *Mit Telegram verbinden*: Telegram opens the bot, *Start* connects the chat.

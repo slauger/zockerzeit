@@ -28,14 +28,13 @@ var ErrNotFound = errors.New("not found")
 
 // RuleSet holds the time windows and budget of a kid.
 type RuleSet struct {
-	DailyMinutes  int            `json:"dailyMinutes"`
-	WeeklyMinutes int            `json:"weeklyMinutes"`
-	Schedule      rules.Schedule `json:"schedule"`
+	DailyMinutes int            `json:"dailyMinutes"`
+	Schedule     rules.Schedule `json:"schedule"`
 }
 
 // Limits converts the rule set into rule engine input.
 func (r RuleSet) Limits() rules.Limits {
-	return rules.Limits{DailyMinutes: r.DailyMinutes, WeeklyMinutes: r.WeeklyMinutes, Schedule: r.Schedule}
+	return rules.Limits{DailyMinutes: r.DailyMinutes, Schedule: r.Schedule}
 }
 
 // Profile is a kid whose play time is tracked.
@@ -243,6 +242,8 @@ var migrations = []string{
 		code TEXT NOT NULL DEFAULT '',
 		created INTEGER NOT NULL
 	);`,
+	// Nintendo has no weekly limit, so neither has Zockerzeit.
+	`ALTER TABLE profiles DROP COLUMN weekly_minutes;`,
 }
 
 // Open opens (and migrates) the database at path. Use ":memory:" for tests.
@@ -331,14 +332,14 @@ func (s *Store) Profile(id string) (Profile, error) {
 	return p, err
 }
 
-const profileColumns = `id, name, daily_minutes, weekly_minutes, schedule`
+const profileColumns = `id, name, daily_minutes, schedule`
 
 type scanner interface{ Scan(...any) error }
 
 func scanProfile(r scanner) (Profile, error) {
 	var p Profile
 	var sched string
-	if err := r.Scan(&p.ID, &p.Name, &p.Rules.DailyMinutes, &p.Rules.WeeklyMinutes, &sched); err != nil {
+	if err := r.Scan(&p.ID, &p.Name, &p.Rules.DailyMinutes, &sched); err != nil {
 		return p, err
 	}
 	p.Rules.Schedule = rules.Schedule{}
@@ -358,10 +359,9 @@ func (s *Store) SaveProfile(p Profile) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.db.Exec(`INSERT INTO profiles (`+profileColumns+`) VALUES (?, ?, ?, ?, ?)
-		ON CONFLICT(id) DO UPDATE SET name = excluded.name, daily_minutes = excluded.daily_minutes,
-		weekly_minutes = excluded.weekly_minutes, schedule = excluded.schedule`,
-		p.ID, p.Name, p.Rules.DailyMinutes, p.Rules.WeeklyMinutes, string(b))
+	_, err = s.db.Exec(`INSERT INTO profiles (`+profileColumns+`) VALUES (?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET name = excluded.name, daily_minutes = excluded.daily_minutes, schedule = excluded.schedule`,
+		p.ID, p.Name, p.Rules.DailyMinutes, string(b))
 	return err
 }
 

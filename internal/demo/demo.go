@@ -23,8 +23,8 @@ func Seed(st *store.Store) error {
 		time.Friday: weekday, time.Saturday: weekend, time.Sunday: weekend,
 	}
 	for _, p := range []store.Profile{
-		{ID: "max", Name: "Max", Rules: store.RuleSet{DailyMinutes: 90, WeeklyMinutes: 480, Schedule: sched}},
-		{ID: "mia", Name: "Mia", Rules: store.RuleSet{DailyMinutes: 45, WeeklyMinutes: 240, Schedule: sched}},
+		{ID: "max", Name: "Max", Rules: store.RuleSet{DailyMinutes: 90, Schedule: sched}},
+		{ID: "mia", Name: "Mia", Rules: store.RuleSet{DailyMinutes: 45, Schedule: sched}},
 	} {
 		if err := st.SaveProfile(p); err != nil {
 			return err

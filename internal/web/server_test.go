@@ -278,7 +278,7 @@ func TestActions(t *testing.T) {
 func TestProfilesAndConsoles(t *testing.T) {
 	e := newEnv(t, "")
 	form := url.Values{
-		"name": {"Großer Bruder"}, "daily": {"60"}, "weekly": {"300"},
+		"name": {"Großer Bruder"}, "daily": {"60"},
 		"win_1": {"15:00-17:00"}, "win_6": {"10:00-12:00, 14:00-18:00"},
 	}
 	if _, body := e.post("/regeln", form); !strings.Contains(body, "gespeichert") {
@@ -288,7 +288,7 @@ func TestProfilesAndConsoles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Rules.DailyMinutes != 60 || p.Rules.WeeklyMinutes != 300 || len(p.Rules.Schedule[time.Saturday]) != 2 || len(p.Rules.Schedule[time.Sunday]) != 0 {
+	if p.Rules.DailyMinutes != 60 || len(p.Rules.Schedule[time.Saturday]) != 2 || len(p.Rules.Schedule[time.Sunday]) != 0 {
 		t.Fatalf("unexpected profile: %+v", p)
 	}
 	if _, body := e.post("/regeln", form); !strings.Contains(body, "gibt es schon") {
@@ -298,7 +298,7 @@ func TestProfilesAndConsoles(t *testing.T) {
 		{"name": {""}},
 		{"name": {"X"}, "win_1": {"18:00-15:00"}},
 		{"name": {"Y"}, "daily": {"-5"}},
-		{"name": {"Z"}, "weekly": {"viel"}},
+		{"name": {"Z"}, "daily": {"viel"}},
 	} {
 		if _, body := e.post("/regeln", bad); !strings.Contains(body, "banner err") {
 			t.Errorf("expected error for %v", bad)

@@ -226,7 +226,7 @@ type rulesData struct {
 func newProfileTemplate() store.Profile {
 	weekday := []rules.Window{{Start: 15 * 60, End: 18*60 + 30}}
 	weekend := []rules.Window{{Start: 10 * 60, End: 12 * 60}, {Start: 15 * 60, End: 19 * 60}}
-	p := store.Profile{Rules: store.RuleSet{DailyMinutes: 60, WeeklyMinutes: 420, Schedule: rules.Schedule{}}}
+	p := store.Profile{Rules: store.RuleSet{DailyMinutes: 60, Schedule: rules.Schedule{}}}
 	for _, d := range rules.Weekdays {
 		p.Rules.Schedule[d] = weekday
 		if d == time.Saturday || d == time.Sunday {
@@ -252,9 +252,6 @@ func parseRuleSet(r *http.Request) (store.RuleSet, error) {
 	var err error
 	if rs.DailyMinutes, err = atoiEmpty(r.FormValue("daily")); err != nil || rs.DailyMinutes < 0 {
 		return rs, errors.New("Tageslimit muss eine Zahl ab 0 sein")
-	}
-	if rs.WeeklyMinutes, err = atoiEmpty(r.FormValue("weekly")); err != nil || rs.WeeklyMinutes < 0 {
-		return rs, errors.New("Wochenlimit muss eine Zahl ab 0 sein")
 	}
 	for _, d := range rules.Weekdays {
 		ws, err := rules.ParseWindows(r.FormValue("win_" + strconv.Itoa(int(d))))

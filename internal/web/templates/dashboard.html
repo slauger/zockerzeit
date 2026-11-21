@@ -55,7 +55,7 @@
     {{end}}{{end}}
     <dl class="budget">
       <div><dt>Heute</dt><dd>{{dur $st.UsedToday}}{{if $st.LimitToday}} von {{$st.LimitToday}} Min{{end}}</dd></div>
-      <div><dt>Woche</dt><dd>{{dur $st.UsedWeek}}{{if $st.LimitWeek}} von {{dur (minutes $st.LimitWeek)}}{{end}}</dd></div>
+      <div><dt>Woche</dt><dd>{{dur $st.UsedWeek}}</dd></div>
     </dl>
     {{if and $st.Allowed (not $st.Free)}}<p class="reason">{{$st.Reason}}</p>{{end}}
   </div>

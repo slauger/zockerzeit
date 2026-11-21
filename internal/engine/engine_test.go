@@ -53,7 +53,7 @@ func newHarness(t *testing.T) *harness {
 	for _, d := range rules.Weekdays {
 		sched[d] = []rules.Window{{Start: 15 * 60, End: 18 * 60}}
 	}
-	must(t, st.SaveProfile(store.Profile{ID: "max", Name: "Max", Rules: store.RuleSet{DailyMinutes: 30, WeeklyMinutes: 120, Schedule: sched}}))
+	must(t, st.SaveProfile(store.Profile{ID: "max", Name: "Max", Rules: store.RuleSet{DailyMinutes: 30, Schedule: sched}}))
 	must(t, st.SaveProfile(store.Profile{ID: "mia", Name: "Mia", Rules: store.RuleSet{Schedule: sched}}))
 	must(t, st.UpsertNintendoDevice(store.NintendoDevice{DeviceID: "D1", Label: "Switch Max", ProfileID: "max"}))
 	must(t, st.UpsertNintendoDevice(store.NintendoDevice{DeviceID: "D2", Label: "Switch Mia", ProfileID: "mia"}))
@@ -103,9 +103,9 @@ func TestEvaluateCountsNintendoTime(t *testing.T) {
 		t.Fatalf("mia = %+v", m)
 	}
 
-	// Yesterday counts for the week only.
+	// Yesterday counts for the week, which is shown but has no limit.
 	must(t, h.store.AddNintendoPlay([]store.NintendoPlay{{TS: h.clock.AddDate(0, 0, -1), Date: h.clock.AddDate(0, 0, -1).Format("2006-01-02"), DeviceID: "D1", ProfileID: "max", Minutes: 100}}))
-	if v := h.view("max"); v.Status.UsedWeek != 120*time.Minute || v.Status.Reason != "Wochenlimit erreicht" {
+	if v := h.view("max"); v.Status.UsedWeek != 120*time.Minute || !v.Status.Allowed {
 		t.Fatalf("week = %+v", v.Status)
 	}
 }

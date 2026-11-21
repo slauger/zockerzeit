@@ -52,7 +52,7 @@ func TestProfiles(t *testing.T) {
 	s := newStore(t)
 	p := Profile{
 		ID: "max", Name: "Max",
-		Rules: RuleSet{DailyMinutes: 90, WeeklyMinutes: 480, Schedule: rules.Schedule{time.Monday: {{Start: 900, End: 1080}}}},
+		Rules: RuleSet{DailyMinutes: 90, Schedule: rules.Schedule{time.Monday: {{Start: 900, End: 1080}}}},
 	}
 	if err := s.SaveProfile(p); err != nil {
 		t.Fatal(err)
@@ -68,7 +68,7 @@ func TestProfiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Rules.Limits().DailyMinutes != 60 || got.Rules.WeeklyMinutes != 480 || got.Rules.Schedule[time.Monday][0].End != 1080 {
+	if got.Rules.Limits().DailyMinutes != 60 || got.Rules.Schedule[time.Monday][0].End != 1080 {
 		t.Fatalf("unexpected profile: %+v", got)
 	}
 	all, _ := s.Profiles()

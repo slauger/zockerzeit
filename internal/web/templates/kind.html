@@ -38,7 +38,6 @@
     <div class="energy kid-energy" aria-hidden="true">{{range .}}<span class="cell {{.}}"></span>{{end}}</div>
     {{end}}{{end}}
     {{if $v.Status.LimitToday}}<p class="kid-small">Heute {{dur $v.Status.UsedToday}} von {{$v.Status.LimitToday}} Min gezockt</p>{{end}}
-    {{if $v.Status.LimitWeek}}<p class="kid-small">Diese Woche {{dur $v.Status.UsedWeek}} von {{dur (minutes $v.Status.LimitWeek)}}</p>{{end}}
   </div>
 
   <ul class="kid-facts">

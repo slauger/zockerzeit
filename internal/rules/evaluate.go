@@ -8,9 +8,8 @@ import (
 // Limits holds the play time budget of a profile. A value of 0 means
 // "no limit" for the respective period.
 type Limits struct {
-	DailyMinutes  int
-	WeeklyMinutes int
-	Schedule      Schedule
+	DailyMinutes int
+	Schedule     Schedule
 }
 
 // Usage is the play time already consumed by a profile.
@@ -38,7 +37,6 @@ type Status struct {
 	UsedToday  time.Duration `json:"usedToday"`
 	UsedWeek   time.Duration `json:"usedWeek"`
 	LimitToday int           `json:"limitToday"`
-	LimitWeek  int           `json:"limitWeek"`
 	// Remaining is the play time left right now. Negative means unlimited.
 	Remaining  time.Duration `json:"remaining"`
 	InWindow   bool          `json:"inWindow"`
@@ -59,9 +57,6 @@ func Evaluate(l Limits, u Usage, o Overrides, now time.Time) Status {
 	}
 	if l.DailyMinutes > 0 {
 		st.LimitToday = l.DailyMinutes + o.BonusMinutes
-	}
-	if l.WeeklyMinutes > 0 {
-		st.LimitWeek = l.WeeklyMinutes + o.BonusMinutes
 	}
 	_, st.InWindow = l.Schedule.Current(now)
 	if next, ok := l.Schedule.Next(now); ok {
@@ -93,15 +88,6 @@ func Evaluate(l Limits, u Usage, o Overrides, now time.Time) Status {
 		left := time.Duration(st.LimitToday)*time.Minute - u.Today
 		if left <= 0 {
 			st.Reason = "Tageslimit erreicht"
-			st.Remaining = 0
-			return st
-		}
-		remaining = min(remaining, left)
-	}
-	if st.LimitWeek > 0 {
-		left := time.Duration(st.LimitWeek)*time.Minute - u.Week
-		if left <= 0 {
-			st.Reason = "Wochenlimit erreicht"
 			st.Remaining = 0
 			return st
 		}

@@ -3,7 +3,7 @@
 <div class="page-head">
   <h1>Regeln</h1>
 </div>
-<p class="lead">Die Limits zählen die Spielzeit laut Nintendo auf allen Konsolen des Kindes zusammen. Zockerzeit zeigt sie in der Übersicht und der Kinder-App und meldet sich, wenn die Zeit fast um ist oder weitergespielt wird. Durchgesetzt wird an der Konsole nur, was in der Nintendo-App eingestellt ist. Zeiten schreibst du als <code>15:00-18:30</code>, mehrere mit Komma. Ein leeres Limit heißt: kein Limit.</p>
+<p class="lead">Das Tageslimit zählt die Spielzeit laut Nintendo auf allen Konsolen des Kindes zusammen. Zockerzeit zeigt sie in der Übersicht und der Kinder-App und meldet sich, wenn die Zeit fast um ist oder weitergespielt wird. Durchgesetzt wird an der Konsole nur, was in der Nintendo-App eingestellt ist. Zeiten schreibst du als <code>15:00-18:30</code>, mehrere mit Komma. Ein leeres Limit heißt: kein Limit.</p>
 
 {{range $i, $p := $d.Profiles}}
 {{$new := eq $p.ID ""}}
@@ -25,9 +25,6 @@
     <div class="limits">
       <label>Pro Tag
         <span class="unit-input"><input type="number" name="daily" value="{{if $rs.DailyMinutes}}{{$rs.DailyMinutes}}{{end}}" min="0" max="1440" step="5" placeholder="kein Limit"><span>Min</span></span>
-      </label>
-      <label>Pro Woche
-        <span class="unit-input"><input type="number" name="weekly" value="{{if $rs.WeeklyMinutes}}{{$rs.WeeklyMinutes}}{{end}}" min="0" max="10080" step="15" placeholder="kein Limit"><span>Min</span></span>
       </label>
     </div>
 
