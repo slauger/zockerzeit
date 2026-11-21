@@ -77,9 +77,17 @@ func (f *fakeNintendo) handler() http.Handler {
 		_, _ = io.WriteString(w, `{"dailySummaries":[
 			{"date":"2026-11-21","playingTime":75,"players":[
 				{"profile":{"playerId":"P1","nickname":"Kind A","imageUri":"https://img/a"},"playingTime":60,
-				 "playedGames":[{"meta":{"applicationId":"0100A"},"playingTime":45},{"applicationId":"0100B","playingTime":15}]},
+				 "playedGames":[{"meta":{"applicationId":"0100A","title":"Kart","imageUri":"https://img/kart"},"playingTime":45},{"applicationId":"0100B","playingTime":15}]},
 				{"profile":{"playerId":"P2","nickname":"Kind B"},"playingTime":15,"playedGames":[]}]},
 			{"date":"2026-11-20","playingTime":null,"players":[]}]}`)
+	}))
+	mux.HandleFunc("GET /v2/actions/parentalControlSetting/fetchParentalControlSetting", moonAuth(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("deviceId") != "DEV1" {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		_, _ = io.WriteString(w, `{"parentalControlSetting":{"whitelistedApplicationList":[
+			{"applicationId":"0100b","title":"Bauen","imageUri":"https://img/bauen"},{"applicationId":"","title":"kaputt"}]}}`)
 	}))
 	return mux
 }
@@ -144,8 +152,13 @@ func TestAccountData(t *testing.T) {
 		t.Fatalf("today = %+v", today)
 	}
 	p := today.Players[0]
-	if p.PlayerID != "P1" || p.Nickname != "Kind A" || p.Minutes != 60 || len(p.Games) != 2 || p.Games[0].ApplicationID != "0100A" || p.Games[1].ApplicationID != "0100B" {
+	if p.PlayerID != "P1" || p.Nickname != "Kind A" || p.Minutes != 60 || len(p.Games) != 2 || p.Games[0].ApplicationID != "0100A" || p.Games[1].ApplicationID != "0100B" ||
+		p.Games[0].Title != "Kart" || p.Games[0].ImageURI != "https://img/kart" {
 		t.Fatalf("player = %+v", p)
+	}
+	titles, err := a.Titles(ctx, "DEV1")
+	if err != nil || len(titles) != 1 || titles[0].Name != "Bauen" || titles[0].ApplicationID != "0100b" {
+		t.Fatalf("Titles = %+v, %v", titles, err)
 	}
 	if sums[1].Minutes != 0 {
 		t.Fatalf("null playing time should be 0: %+v", sums[1])

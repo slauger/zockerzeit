@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"encoding/json"
+	"strings"
 	"time"
 )
 
@@ -187,7 +188,11 @@ func (s *Store) UpsertNintendoUsage(u NintendoUsage) error {
 
 // NintendoUsageOn returns all play time records of a day (YYYY-MM-DD).
 func (s *Store) NintendoUsageOn(date string) ([]NintendoUsage, error) {
-	rows, err := s.db.Query(`SELECT date, device_id, player_id, minutes, games FROM nintendo_usage WHERE date = ? ORDER BY minutes DESC`, date)
+	return s.nintendoUsage(`WHERE date = ? ORDER BY minutes DESC`, date)
+}
+
+func (s *Store) nintendoUsage(where string, args ...any) ([]NintendoUsage, error) {
+	rows, err := s.db.Query(`SELECT date, device_id, player_id, minutes, games FROM nintendo_usage `+where, args...) //nolint:gosec // where is a constant
 	if err != nil {
 		return nil, err
 	}
@@ -203,6 +208,47 @@ func (s *Store) NintendoUsageOn(date string) ([]NintendoUsage, error) {
 		out = append(out, u)
 	}
 	return out, rows.Err()
+}
+
+// NintendoTitle is the name and cover image of a game.
+type NintendoTitle struct {
+	ApplicationID string `json:"applicationId"`
+	Name          string `json:"name"`
+	ImageURI      string `json:"imageUri"`
+}
+
+// UpsertNintendoTitle stores a game. Empty fields keep what is known.
+func (s *Store) UpsertNintendoTitle(t NintendoTitle) error {
+	_, err := s.db.Exec(`INSERT INTO nintendo_titles (application_id, name, image_uri) VALUES (?, ?, ?)
+		ON CONFLICT(application_id) DO UPDATE SET
+			name = CASE WHEN excluded.name <> '' THEN excluded.name ELSE name END,
+			image_uri = CASE WHEN excluded.image_uri <> '' THEN excluded.image_uri ELSE image_uri END`,
+		strings.ToUpper(t.ApplicationID), t.Name, t.ImageURI)
+	return err
+}
+
+// NintendoTitles returns all known games by upper case application id.
+func (s *Store) NintendoTitles() (map[string]NintendoTitle, error) {
+	rows, err := s.db.Query(`SELECT application_id, name, image_uri FROM nintendo_titles`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	out := map[string]NintendoTitle{}
+	for rows.Next() {
+		var t NintendoTitle
+		if err := rows.Scan(&t.ApplicationID, &t.Name, &t.ImageURI); err != nil {
+			return nil, err
+		}
+		out[t.ApplicationID] = t
+	}
+	return out, rows.Err()
+}
+
+// NintendoUsageBetween returns all play time records from..to (YYYY-MM-DD,
+// inclusive), newest day first.
+func (s *Store) NintendoUsageBetween(from, to string) ([]NintendoUsage, error) {
+	return s.nintendoUsage(`WHERE date >= ? AND date <= ? ORDER BY date DESC, minutes DESC`, from, to)
 }
 
 func affected(res sql.Result, err error) error {

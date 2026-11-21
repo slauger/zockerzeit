@@ -546,6 +546,7 @@ type historyData struct {
 	Days     int
 	Date     string
 	Type     string
+	Games    gamesView
 }
 
 func (s *Server) history(w http.ResponseWriter, r *http.Request) {
@@ -563,7 +564,12 @@ func (s *Server) history(w http.ResponseWriter, r *http.Request) {
 	if t != store.TypePhone && t != "alle" {
 		t = store.TypeConsole
 	}
-	s.render(w, r, "verlauf", "Verlauf", historyData{Profiles: profiles, Selected: sel, Days: days, Date: date, Type: t})
+	data := historyData{Profiles: profiles, Selected: sel, Days: days, Date: date, Type: t}
+	if t != store.TypePhone {
+		today := s.engine.Now().In(s.engine.Location())
+		data.Games = s.nintendoGames(sel, today.AddDate(0, 0, 1-days), today)
+	}
+	s.render(w, r, "verlauf", "Verlauf", data)
 }
 
 type statsResponse struct {

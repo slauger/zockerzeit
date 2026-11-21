@@ -572,6 +572,50 @@ func TestNintendoPages(t *testing.T) {
 	}
 }
 
+func TestHistoryGames(t *testing.T) {
+	e := newEnv(t, "")
+	if _, body := e.get("/verlauf?profil=max"); !strings.Contains(body, "Benutzer auf der Switch diesem Profil zuordnen") {
+		t.Fatal("hint for unmapped profile missing")
+	}
+	now := time.Now().In(berlin)
+	if err := demo.SeedNintendo(e.store, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := demo.SeedNintendo(e.store, now); err != nil {
+		t.Fatal(err)
+	}
+	if accs, _ := e.store.NintendoAccounts(); len(accs) != 1 {
+		t.Fatalf("SeedNintendo not idempotent: %d accounts", len(accs))
+	}
+	_ = e.store.UpsertNintendoUsage(store.NintendoUsage{Date: now.Format("2006-01-02"), DeviceID: "demo-switch-1", PlayerID: "demo-max", Minutes: 30,
+		Games: []store.NintendoGame{{ApplicationID: "0100000000de0001", Minutes: 20}, {ApplicationID: "0100FFFF", Minutes: 10}, {ApplicationID: "0100000000DE0003"}}})
+	_, body := e.get("/verlauf?profil=max&tage=7")
+	for _, want := range []string{"Kart-Rennen Turbo", "Unbekanntes Spiel", "Switch Kinderzimmer", "Pro Tag", "in 7 Tagen"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("games section misses %q", want)
+		}
+	}
+	if _, body := e.get("/verlauf?profil=max&typ=phone"); strings.Contains(body, "Kart-Rennen") {
+		t.Fatal("games shown for phones")
+	}
+	if _, body := e.get("/verlauf?profil=max&tage=7&tag=2000-01-01"); !strings.Contains(body, "Kart-Rennen") {
+		t.Fatal("games depend on the timeline day")
+	}
+	_ = e.store.SetNintendoPlayerProfile("demo-max", "")
+	_ = e.store.SetNintendoPlayerProfile("demo-mia", "max")
+	for back := range 14 {
+		day := now.AddDate(0, 0, -back).Format("2006-01-02")
+		usage, _ := e.store.NintendoUsageOn(day)
+		for _, u := range usage {
+			u.Minutes = 0
+			_ = e.store.UpsertNintendoUsage(u)
+		}
+	}
+	if _, body := e.get("/verlauf?profil=max"); !strings.Contains(body, "nichts gespielt") {
+		t.Fatal("empty period notice missing")
+	}
+}
+
 func TestNintendoDisabled(t *testing.T) {
 	e := newEnv(t, "")
 	if _, body := e.get("/einstellungen/nintendo"); !strings.Contains(body, "nicht eingerichtet") {

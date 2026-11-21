@@ -240,9 +240,12 @@ func (a *Account) Devices(ctx context.Context) ([]Device, error) {
 	return out.OwnedDevices, err
 }
 
-// Game is the play time of one application.
+// Game is the play time of one application. Title and ImageURI are only
+// set when the summary carries them.
 type Game struct {
 	ApplicationID string
+	Title         string
+	ImageURI      string
 	Minutes       int
 }
 
@@ -277,11 +280,9 @@ func (a *Account) DailySummaries(ctx context.Context, deviceID string) ([]DailyS
 				} `json:"profile"`
 				PlayingTime *int `json:"playingTime"`
 				PlayedGames []struct {
-					ApplicationID string `json:"applicationId"`
-					Meta          struct {
-						ApplicationID string `json:"applicationId"`
-					} `json:"meta"`
-					PlayingTime *int `json:"playingTime"`
+					appMeta
+					Meta        appMeta `json:"meta"`
+					PlayingTime *int    `json:"playingTime"`
 				} `json:"playedGames"`
 			} `json:"players"`
 		} `json:"dailySummaries"`
@@ -295,15 +296,49 @@ func (a *Account) DailySummaries(ctx context.Context, deviceID string) ([]DailyS
 		for _, p := range d.Players {
 			pd := PlayerDay{PlayerID: p.Profile.PlayerID, Nickname: p.Profile.Nickname, ImageURI: p.Profile.ImageURI, Minutes: deref(p.PlayingTime)}
 			for _, g := range p.PlayedGames {
-				id := g.ApplicationID
-				if id == "" {
-					id = g.Meta.ApplicationID
+				// Switch summaries carry the fields directly, Switch 2 summaries in "meta".
+				m := g.appMeta
+				if m.ApplicationID == "" {
+					m = g.Meta
 				}
-				pd.Games = append(pd.Games, Game{ApplicationID: id, Minutes: deref(g.PlayingTime)})
+				pd.Games = append(pd.Games, Game{ApplicationID: m.ApplicationID, Title: m.Title, ImageURI: m.ImageURI, Minutes: deref(g.PlayingTime)})
 			}
 			ds.Players = append(ds.Players, pd)
 		}
 		out = append(out, ds)
+	}
+	return out, nil
+}
+
+type appMeta struct {
+	ApplicationID string `json:"applicationId"`
+	Title         string `json:"title"`
+	ImageURI      string `json:"imageUri"`
+}
+
+// Title is the name and cover image of an application.
+type Title struct {
+	ApplicationID string
+	Name          string
+	ImageURI      string
+}
+
+// Titles returns the applications known to a console. They come from the
+// parental control settings, which list every game installed or played.
+func (a *Account) Titles(ctx context.Context, deviceID string) ([]Title, error) {
+	var raw struct {
+		Setting struct {
+			Apps []appMeta `json:"whitelistedApplicationList"`
+		} `json:"parentalControlSetting"`
+	}
+	if err := a.moon(ctx, "/v2/actions/parentalControlSetting/fetchParentalControlSetting?deviceId="+url.QueryEscape(deviceID), &raw); err != nil {
+		return nil, err
+	}
+	out := make([]Title, 0, len(raw.Setting.Apps))
+	for _, app := range raw.Setting.Apps {
+		if app.ApplicationID != "" {
+			out = append(out, Title{ApplicationID: app.ApplicationID, Name: app.Title, ImageURI: app.ImageURI})
+		}
 	}
 	return out, nil
 }

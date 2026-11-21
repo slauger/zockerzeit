@@ -138,6 +138,15 @@ func (s *Syncer) syncAccount(ctx context.Context, a store.NintendoAccount) error
 		if err := s.store.UpsertNintendoDevice(store.NintendoDevice{DeviceID: d.ID, Account: a.ID, Label: d.Label, Model: d.Model()}); err != nil {
 			return err
 		}
+		titles, err := acc.Titles(ctx, d.ID)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: Spieleliste: %w", d.Label, err))
+		}
+		for _, t := range titles {
+			if err := s.store.UpsertNintendoTitle(store.NintendoTitle{ApplicationID: t.ApplicationID, Name: t.Name, ImageURI: t.ImageURI}); err != nil {
+				return err
+			}
+		}
 		days, err := acc.DailySummaries(ctx, d.ID)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", d.Label, err))
@@ -151,6 +160,11 @@ func (s *Syncer) syncAccount(ctx context.Context, a store.NintendoAccount) error
 				games := make([]store.NintendoGame, 0, len(p.Games))
 				for _, g := range p.Games {
 					games = append(games, store.NintendoGame{ApplicationID: g.ApplicationID, Minutes: g.Minutes})
+					if g.Title != "" || g.ImageURI != "" {
+						if err := s.store.UpsertNintendoTitle(store.NintendoTitle{ApplicationID: g.ApplicationID, Name: g.Title, ImageURI: g.ImageURI}); err != nil {
+							return err
+						}
+					}
 				}
 				if err := s.store.UpsertNintendoUsage(store.NintendoUsage{Date: day.Date, DeviceID: d.ID, PlayerID: p.PlayerID, Minutes: p.Minutes, Games: games}); err != nil {
 					return err

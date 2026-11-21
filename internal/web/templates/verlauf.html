@@ -33,6 +33,44 @@
     <div class="chart tall"><canvas id="chart-daily"></canvas></div>
   </section>
 
+  {{if ne .Type "phone"}}
+  <section class="card games">
+    <h2>Spiele {{if .Games.Minutes}}<span class="muted">{{dur (minutes .Games.Minutes)}} in {{.Days}} Tagen</span>{{end}}</h2>
+    {{if not .Games.Linked}}
+    <p class="muted">Welche Spiele gespielt wurden, kommt von Nintendo. Dafür unter <a href="/einstellungen/nintendo">Einstellungen → Nintendo</a> die Benutzer auf der Switch diesem Profil zuordnen.</p>
+    {{else if not .Games.Top}}
+    <p class="muted">Laut Nintendo im gewählten Zeitraum nichts gespielt.</p>
+    {{else}}
+    <p class="muted small">Laut Nintendo-Jugendschutz, über alle Konsolen. Gezählt wird nur, was die Switch schon hochgeladen hat.</p>
+    <ol class="game-top">
+      {{range .Games.Top}}
+      <li>
+        {{if .ImageURI}}<img src="{{.ImageURI}}" alt="" width="48" height="48" loading="lazy" referrerpolicy="no-referrer">{{else}}<span class="game-cover" aria-hidden="true">{{initial .Name}}</span>{{end}}
+        <div class="game-main">
+          <div class="game-line"><strong>{{.Name}}</strong><span>{{dur (minutes .Minutes)}}</span></div>
+          <div class="game-bar"><span style="width: {{.Percent}}%"></span></div>
+          <span class="muted small">{{range $i, $c := .Consoles}}{{if $i}}, {{end}}{{$c}}{{end}}</span>
+        </div>
+      </li>
+      {{end}}
+    </ol>
+    <details class="game-details">
+    <summary>Pro Tag: wer was wie lange gespielt hat</summary>
+    <ul class="game-days">
+      {{range .Games.Days}}
+      <li>
+        <div class="game-line"><strong>{{germanDate .Date}}</strong><span class="muted">{{dur (minutes .Minutes)}}</span></div>
+        <ul class="game-chips">
+          {{range .Games}}<li>{{.Name}} <span class="muted">{{dur (minutes .Minutes)}}, {{.Console}}</span></li>{{end}}
+        </ul>
+      </li>
+      {{end}}
+    </ul>
+    </details>
+    {{end}}
+  </section>
+  {{end}}
+
   <section class="card">
     <h2>Zeitstrahl <span class="muted" id="timeline-day"></span></h2>
     <p class="muted small">Wann an welchem Gerät gespielt wurde.</p>

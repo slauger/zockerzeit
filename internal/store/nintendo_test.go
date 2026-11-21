@@ -52,6 +52,19 @@ func TestNintendo(t *testing.T) {
 		t.Fatalf("usage = %+v", u)
 	}
 
+	check(s.UpsertNintendoUsage(NintendoUsage{Date: "2026-11-19", DeviceID: "D1", PlayerID: "P1", Minutes: 10}))
+	check(s.UpsertNintendoUsage(NintendoUsage{Date: "2026-11-01", DeviceID: "D1", PlayerID: "P1", Minutes: 5}))
+	if u, _ := s.NintendoUsageBetween("2026-11-15", "2026-11-21"); len(u) != 2 || u[0].Date != "2026-11-21" {
+		t.Fatalf("usage between = %+v", u)
+	}
+
+	check(s.UpsertNintendoTitle(NintendoTitle{ApplicationID: "0100abc", Name: "Kart", ImageURI: "https://img"}))
+	check(s.UpsertNintendoTitle(NintendoTitle{ApplicationID: "0100ABC"}))
+	check(s.UpsertNintendoTitle(NintendoTitle{ApplicationID: "0100ABC", Name: "Kart 2"}))
+	if titles, _ := s.NintendoTitles(); titles["0100ABC"].Name != "Kart 2" || titles["0100ABC"].ImageURI != "https://img" {
+		t.Fatalf("titles = %+v", titles)
+	}
+
 	check(s.DeleteNintendoAccount(id))
 	accs, _ = s.NintendoAccounts()
 	devs, _ = s.NintendoDevices()

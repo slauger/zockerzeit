@@ -157,3 +157,84 @@ func Seed(st *store.Store, now time.Time) error {
 	}
 	return st.AddSamples(samples)
 }
+
+// demoGames are made-up titles for the Nintendo play time sample data.
+var demoGames = []store.NintendoTitle{
+	{ApplicationID: "0100000000DE0001", Name: "Kart-Rennen Turbo"},
+	{ApplicationID: "0100000000DE0002", Name: "Inselabenteuer"},
+	{ApplicationID: "0100000000DE0003", Name: "Klötzchenwelt"},
+	{ApplicationID: "0100000000DE0004", Name: "Partyspiele Deluxe"},
+	{ApplicationID: "0100000000DE0005", Name: "Monster-Sammler"},
+}
+
+// SeedNintendo adds a connected Nintendo account with two consoles, one user
+// per kid and two weeks of play time per game, unless an account exists.
+func SeedNintendo(st *store.Store, now time.Time) error {
+	if accs, err := st.NintendoAccounts(); err != nil || len(accs) > 0 {
+		return err
+	}
+	rng := rand.New(rand.NewPCG(42, 8)) //nolint:gosec // deterministic sample data
+	id, err := st.AddNintendoAccount(store.NintendoAccount{Label: "Familie", AccountID: "demo"})
+	if err != nil {
+		return err
+	}
+	if err := st.SetNintendoSync(id, now, ""); err != nil {
+		return err
+	}
+	for _, g := range demoGames {
+		if err := st.UpsertNintendoTitle(g); err != nil {
+			return err
+		}
+	}
+	consoles := []store.NintendoDevice{
+		{DeviceID: "demo-switch-1", Account: id, Label: "Switch Kinderzimmer", Model: "Switch 2", DeviceMAC: "98:b6:e9:00:00:01"},
+		{DeviceID: "demo-switch-2", Account: id, Label: "Switch Lite", Model: "Switch", DeviceMAC: "3a:10:5f:00:00:04"},
+	}
+	players := []store.NintendoPlayer{{PlayerID: "demo-max", Nickname: "Max", ProfileID: "max"}, {PlayerID: "demo-mia", Nickname: "Mia", ProfileID: "mia"}}
+	for _, c := range consoles {
+		if err := st.UpsertNintendoDevice(c); err != nil {
+			return err
+		}
+		if err := st.SetNintendoDeviceMAC(c.DeviceID, c.DeviceMAC); err != nil {
+			return err
+		}
+		for _, p := range players {
+			p.DeviceID = c.DeviceID
+			if err := st.UpsertNintendoPlayer(p); err != nil {
+				return err
+			}
+		}
+	}
+	for _, p := range players {
+		if err := st.SetNintendoPlayerProfile(p.PlayerID, p.ProfileID); err != nil {
+			return err
+		}
+	}
+	for back := range 14 {
+		date := now.AddDate(0, 0, -back).Format("2006-01-02")
+		for _, c := range consoles {
+			for i, p := range players {
+				if rng.IntN(3) == 0 {
+					continue
+				}
+				var games []store.NintendoGame
+				total := 0
+				for _, g := range demoGames[i : i+2+rng.IntN(2)] {
+					if rng.IntN(3) == 0 {
+						continue
+					}
+					m := 5 + rng.IntN(50)
+					total += m
+					games = append(games, store.NintendoGame{ApplicationID: g.ApplicationID, Minutes: m})
+				}
+				if total == 0 {
+					continue
+				}
+				if err := st.UpsertNintendoUsage(store.NintendoUsage{Date: date, DeviceID: c.DeviceID, PlayerID: p.PlayerID, Minutes: total, Games: games}); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}

@@ -75,6 +75,9 @@ func run() error {
 		if err := demo.Seed(st, time.Now().In(loc)); err != nil {
 			return fmt.Errorf("seed demo data: %w", err)
 		}
+		if err := demo.SeedNintendo(st, time.Now().In(loc)); err != nil {
+			return fmt.Errorf("seed demo data: %w", err)
+		}
 		ctrl = demo.NewController()
 	} else {
 		ctrl, err = unifi.New(unifi.Config{

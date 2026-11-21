@@ -54,6 +54,14 @@ func TestSyncer(t *testing.T) {
 		t.Fatalf("sync result: devs=%d players=%d usage=%+v", len(devs), len(players), usage)
 	}
 
+	titles, _ := st.NintendoTitles()
+	if titles["0100A"].Name != "Kart" || titles["0100B"].Name != "Bauen" || titles["0100B"].ImageURI != "https://img/bauen" {
+		t.Fatalf("titles = %+v", titles)
+	}
+	if !strings.Contains(accs[0].LastError, "Spieleliste") {
+		t.Fatalf("expected title list error for DEV2, got %q", accs[0].LastError)
+	}
+
 	// A fresh syncer decrypts the stored token.
 	s2 := NewSyncer(st, c, box, time.Minute, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	s2.SyncAll(ctx)

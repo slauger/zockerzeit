@@ -233,6 +233,12 @@ var migrations = []string{
 		games TEXT NOT NULL DEFAULT '[]',
 		PRIMARY KEY (date, device_id, player_id)
 	);`,
+	`CREATE TABLE nintendo_titles (
+		application_id TEXT PRIMARY KEY,
+		name TEXT NOT NULL DEFAULT '',
+		image_uri TEXT NOT NULL DEFAULT ''
+	);
+	CREATE INDEX nintendo_usage_date ON nintendo_usage (date);`,
 }
 
 // Open opens (and migrates) the database at path. Use ":memory:" for tests.

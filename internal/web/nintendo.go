@@ -4,7 +4,9 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"net/http"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -17,7 +19,7 @@ import (
 type nintendoPlayerView struct {
 	store.NintendoPlayer
 	Today int
-	Games int
+	Games []string
 }
 
 type nintendoDeviceView struct {
@@ -54,6 +56,7 @@ func (s *Server) nintendoPage(w http.ResponseWriter, r *http.Request) {
 	devices, _ := s.store.NintendoDevices()
 	players, _ := s.store.NintendoPlayers()
 	usage, _ := s.store.NintendoUsageOn(s.engine.Now().Format("2006-01-02"))
+	titles, _ := s.store.NintendoTitles()
 	data.Profiles, _ = s.store.Profiles()
 	managed, _ := s.store.Devices()
 	for _, d := range managed {
@@ -75,7 +78,14 @@ func (s *Server) nintendoPage(w http.ResponseWriter, r *http.Request) {
 				pv := nintendoPlayerView{NintendoPlayer: p}
 				for _, u := range usage {
 					if u.DeviceID == d.DeviceID && u.PlayerID == p.PlayerID {
-						pv.Today, pv.Games = u.Minutes, len(u.Games)
+						pv.Today = u.Minutes
+						for _, g := range u.Games {
+							name := titles[strings.ToUpper(g.ApplicationID)].Name
+							if name == "" {
+								name = "Unbekanntes Spiel"
+							}
+							pv.Games = append(pv.Games, fmt.Sprintf("%s %s", name, formatDuration(time.Duration(g.Minutes)*time.Minute)))
+						}
 					}
 				}
 				dv.Today += pv.Today
@@ -195,17 +205,7 @@ func (s *Server) nintendoByProfile() map[string]nintendoToday {
 		return out
 	}
 	players, _ := s.store.NintendoPlayers()
-	devices, _ := s.store.NintendoDevices()
-	managed, _ := s.store.Devices()
-	label := map[string]string{}
-	for _, d := range devices {
-		label[d.DeviceID] = d.Label
-		for _, m := range managed {
-			if m.MAC == d.DeviceMAC {
-				label[d.DeviceID] = m.Name
-			}
-		}
-	}
+	label := s.nintendoConsoleNames()
 	profileOf := map[string]string{}
 	for _, p := range players {
 		profileOf[p.DeviceID+"/"+p.PlayerID] = p.ProfileID
@@ -223,6 +223,131 @@ func (s *Server) nintendoByProfile() map[string]nintendoToday {
 	for k, t := range out {
 		sort.Slice(t.Parts, func(i, j int) bool { return t.Parts[i].Minutes > t.Parts[j].Minutes })
 		out[k] = t
+	}
+	return out
+}
+
+// gamesView is what a profile played according to Nintendo in a period.
+type gamesView struct {
+	Linked  bool // at least one Nintendo user is mapped to the profile
+	Minutes int
+	Top     []gameRow
+	Days    []gameDay
+}
+
+type gameRow struct {
+	Name     string
+	ImageURI string
+	Minutes  int
+	Percent  int // share of the most played game, for the bar width
+	Consoles []string
+}
+
+type gameDay struct {
+	Date    time.Time
+	Minutes int
+	Games   []gameChip
+}
+
+type gameChip struct {
+	Name    string
+	Console string
+	Minutes int
+}
+
+// nintendoGames collects the games a profile played from..to (inclusive).
+func (s *Server) nintendoGames(profileID string, from, to time.Time) gamesView {
+	var v gamesView
+	players, _ := s.store.NintendoPlayers()
+	mine := map[string]bool{}
+	for _, p := range players {
+		if p.ProfileID == profileID {
+			mine[p.DeviceID+"/"+p.PlayerID] = true
+			v.Linked = true
+		}
+	}
+	if !v.Linked {
+		return v
+	}
+	usage, err := s.store.NintendoUsageBetween(from.Format("2006-01-02"), to.Format("2006-01-02"))
+	if err != nil {
+		return v
+	}
+	titles, _ := s.store.NintendoTitles()
+	consoles := s.nintendoConsoleNames()
+	name := func(id string) (string, string) {
+		if t, ok := titles[strings.ToUpper(id)]; ok && t.Name != "" {
+			return t.Name, t.ImageURI
+		}
+		return "Unbekanntes Spiel", ""
+	}
+
+	top := map[string]*gameRow{}
+	days := map[string]*gameDay{}
+	for _, u := range usage {
+		if !mine[u.DeviceID+"/"+u.PlayerID] || u.Minutes == 0 {
+			continue
+		}
+		v.Minutes += u.Minutes
+		day := days[u.Date]
+		if day == nil {
+			d, _ := time.ParseInLocation("2006-01-02", u.Date, s.engine.Location())
+			day = &gameDay{Date: d}
+			days[u.Date] = day
+		}
+		day.Minutes += u.Minutes
+		console := consoles[u.DeviceID]
+		for _, g := range u.Games {
+			if g.Minutes == 0 {
+				continue
+			}
+			n, img := name(g.ApplicationID)
+			day.Games = append(day.Games, gameChip{Name: n, Console: console, Minutes: g.Minutes})
+			key := strings.ToUpper(g.ApplicationID)
+			row := top[key]
+			if row == nil {
+				row = &gameRow{Name: n, ImageURI: img}
+				top[key] = row
+			}
+			row.Minutes += g.Minutes
+			if !slices.Contains(row.Consoles, console) {
+				row.Consoles = append(row.Consoles, console)
+			}
+		}
+	}
+	for _, r := range top {
+		v.Top = append(v.Top, *r)
+	}
+	sort.Slice(v.Top, func(i, j int) bool {
+		if v.Top[i].Minutes != v.Top[j].Minutes {
+			return v.Top[i].Minutes > v.Top[j].Minutes
+		}
+		return v.Top[i].Name < v.Top[j].Name
+	})
+	for i := range v.Top {
+		v.Top[i].Percent = max(v.Top[i].Minutes*100/v.Top[0].Minutes, 2)
+	}
+	for _, d := range days {
+		sort.SliceStable(d.Games, func(i, j int) bool { return d.Games[i].Minutes > d.Games[j].Minutes })
+		v.Days = append(v.Days, *d)
+	}
+	sort.Slice(v.Days, func(i, j int) bool { return v.Days[i].Date.After(v.Days[j].Date) })
+	return v
+}
+
+// nintendoConsoleNames maps Nintendo device ids to the managed device name,
+// or the Nintendo label when the console is not mapped.
+func (s *Server) nintendoConsoleNames() map[string]string {
+	devices, _ := s.store.NintendoDevices()
+	managed, _ := s.store.Devices()
+	out := map[string]string{}
+	for _, d := range devices {
+		out[d.DeviceID] = d.Label
+		for _, m := range managed {
+			if m.MAC == d.DeviceMAC {
+				out[d.DeviceID] = m.Name
+			}
+		}
 	}
 	return out
 }
