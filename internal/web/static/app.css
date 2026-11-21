@@ -153,7 +153,7 @@ main > h1 + .muted { margin: -0.5rem 0 1.5rem; max-width: 70ch; }
 
 /* --- controls --- */
 
-button {
+button, a.button {
   font: inherit;
   font-weight: 700;
   padding: 0.55rem 1rem;
@@ -162,8 +162,10 @@ button {
   background: var(--surface-2);
   color: var(--text);
   cursor: pointer;
+  display: inline-block;
+  text-decoration: none;
 }
-button:hover { border-color: var(--accent); }
+button:hover, a.button:hover { border-color: var(--accent); }
 button:active { transform: translateY(1px); }
 button.primary { background: var(--accent-btn); border-color: var(--accent-btn); color: var(--accent-text); }
 button.danger { background: transparent; border-color: var(--stop); color: var(--stop-text); }
@@ -368,6 +370,7 @@ label.check { flex-direction: row; align-items: center; gap: 0.45rem; color: var
 .tile-link { font-weight: 700; }
 
 .settings { max-width: 860px; }
+.settings + .settings { margin-top: 2.5rem; }
 .settings .card { display: flex; flex-direction: column; gap: 1.1rem; }
 .settings .card > .muted { margin: -0.5rem 0 0; }
 .switch.big { align-items: flex-start; font-weight: 400; }

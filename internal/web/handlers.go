@@ -830,12 +830,23 @@ func (s *Server) kidServiceWorker(w http.ResponseWriter, r *http.Request) {
 // --- settings -----------------------------------------------------------
 
 type settingsData struct {
-	Settings engine.Settings
-	Internet bool
+	Settings         engine.Settings
+	Internet         bool
+	Nintendo         bool
+	NintendoAccounts []store.NintendoAccount
 }
 
 func (s *Server) settingsPage(w http.ResponseWriter, r *http.Request) {
-	s.render(w, r, "einstellungen", "Einstellungen", settingsData{Settings: s.engine.Settings(), Internet: s.engine.InternetEnabled()})
+	data := settingsData{Settings: s.engine.Settings(), Internet: s.engine.InternetEnabled(), Nintendo: s.opts.Nintendo != nil}
+	if data.Nintendo {
+		accounts, err := s.store.NintendoAccounts()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		data.NintendoAccounts = accounts
+	}
+	s.render(w, r, "einstellungen", "Einstellungen", data)
 }
 
 func (s *Server) saveSettings(w http.ResponseWriter, r *http.Request) {

@@ -39,5 +39,20 @@
 
   <div class="form-actions"><button class="primary">Speichern</button></div>
 </form>
+
+<div class="settings">
+<section class="card">
+  <h2>Nintendo</h2>
+  {{if not .Nintendo}}
+  <p class="muted">Nicht verfügbar: Die Nintendo-Anbindung braucht ein festes <code>ZOCKERZEIT_SESSION_SECRET</code>.</p>
+  {{else}}
+  <p class="muted">Spielzeit pro Konsole und Benutzer aus der Nintendo-Jugendschutz-App. {{with .NintendoAccounts}}Verbunden: {{range $i, $a := .}}{{if $i}}, {{end}}{{$a.Label}}{{end}}.{{else}}Noch kein Account verbunden.{{end}}</p>
+  <div class="buttons">
+    <a class="button" href="/einstellungen/nintendo">Konsolen und Spieler zuordnen</a>
+    <form method="post" action="/einstellungen/nintendo/login"><button class="primary">Account verbinden</button></form>
+  </div>
+  {{end}}
+</section>
+</div>
 {{end}}
 {{end}}

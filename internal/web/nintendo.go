@@ -90,17 +90,17 @@ func (s *Server) nintendoPage(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) nintendoLogin(w http.ResponseWriter, r *http.Request) {
 	if s.opts.Nintendo == nil {
-		redirectErr(w, r, "/nintendo", errors.New("Nintendo-Anbindung ist nicht eingerichtet"))
+		redirectErr(w, r, "/einstellungen/nintendo", errors.New("Nintendo-Anbindung ist nicht eingerichtet"))
 		return
 	}
 	loginURL, verifier, err := s.opts.Nintendo.LoginURL()
 	if err != nil {
-		redirectErr(w, r, "/nintendo", err)
+		redirectErr(w, r, "/einstellungen/nintendo", err)
 		return
 	}
 	raw := make([]byte, 12)
 	if _, err := rand.Read(raw); err != nil {
-		redirectErr(w, r, "/nintendo", err)
+		redirectErr(w, r, "/einstellungen/nintendo", err)
 		return
 	}
 	key := hex.EncodeToString(raw)
@@ -112,7 +112,7 @@ func (s *Server) nintendoLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	s.logins[key] = pendingLogin{url: loginURL, verifier: verifier, created: time.Now()}
 	s.loginMu.Unlock()
-	http.Redirect(w, r, "/nintendo?login="+key+"#verbinden", http.StatusSeeOther)
+	http.Redirect(w, r, "/einstellungen/nintendo?login="+key+"#verbinden", http.StatusSeeOther)
 }
 
 func (s *Server) nintendoConnect(w http.ResponseWriter, r *http.Request) {
@@ -121,39 +121,39 @@ func (s *Server) nintendoConnect(w http.ResponseWriter, r *http.Request) {
 	p, ok := s.logins[key]
 	s.loginMu.Unlock()
 	if !ok || s.opts.Nintendo == nil {
-		redirectErr(w, r, "/nintendo", errors.New("Anmeldung abgelaufen, bitte neu starten"))
+		redirectErr(w, r, "/einstellungen/nintendo", errors.New("Anmeldung abgelaufen, bitte neu starten"))
 		return
 	}
 	label := strings.TrimSpace(r.FormValue("label"))
 	if _, err := s.opts.Nintendo.Connect(r.Context(), label, r.FormValue("redirect"), p.verifier); err != nil {
-		http.Redirect(w, r, "/nintendo?login="+key+"&fehler="+urlQuery(err.Error())+"#verbinden", http.StatusSeeOther)
+		http.Redirect(w, r, "/einstellungen/nintendo?login="+key+"&fehler="+urlQuery(err.Error())+"#verbinden", http.StatusSeeOther)
 		return
 	}
 	s.loginMu.Lock()
 	delete(s.logins, key)
 	s.loginMu.Unlock()
 	_ = s.store.AddEvent(store.Event{TS: s.engine.Now(), Kind: "config", Message: "Nintendo-Account " + label + " verbunden"})
-	redirect(w, r, "/nintendo", "Nintendo-Account "+label+" verbunden")
+	redirect(w, r, "/einstellungen/nintendo", "Nintendo-Account "+label+" verbunden")
 }
 
 func (s *Server) nintendoSync(w http.ResponseWriter, r *http.Request) {
 	if s.opts.Nintendo != nil {
 		s.opts.Nintendo.SyncAll(r.Context())
 	}
-	redirect(w, r, "/nintendo", "Daten von Nintendo abgerufen")
+	redirect(w, r, "/einstellungen/nintendo", "Daten von Nintendo abgerufen")
 }
 
 func (s *Server) nintendoRemove(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil || s.opts.Nintendo == nil {
-		redirectErr(w, r, "/nintendo", errors.New("unbekannter Account"))
+		redirectErr(w, r, "/einstellungen/nintendo", errors.New("unbekannter Account"))
 		return
 	}
 	if err := s.opts.Nintendo.Remove(id); err != nil {
-		redirectErr(w, r, "/nintendo", err)
+		redirectErr(w, r, "/einstellungen/nintendo", err)
 		return
 	}
-	redirect(w, r, "/nintendo", "Nintendo-Account entfernt")
+	redirect(w, r, "/einstellungen/nintendo", "Nintendo-Account entfernt")
 }
 
 func (s *Server) nintendoMapDevice(w http.ResponseWriter, r *http.Request) {
@@ -162,18 +162,18 @@ func (s *Server) nintendoMapDevice(w http.ResponseWriter, r *http.Request) {
 		mac = unifi.NormalizeMAC(mac)
 	}
 	if err := s.store.SetNintendoDeviceMAC(r.FormValue("device_id"), mac); err != nil {
-		redirectErr(w, r, "/nintendo", err)
+		redirectErr(w, r, "/einstellungen/nintendo", err)
 		return
 	}
-	redirect(w, r, "/nintendo", "Konsole zugeordnet")
+	redirect(w, r, "/einstellungen/nintendo", "Konsole zugeordnet")
 }
 
 func (s *Server) nintendoMapPlayer(w http.ResponseWriter, r *http.Request) {
 	if err := s.store.SetNintendoPlayerProfile(r.FormValue("player_id"), r.FormValue("profile")); err != nil {
-		redirectErr(w, r, "/nintendo", err)
+		redirectErr(w, r, "/einstellungen/nintendo", err)
 		return
 	}
-	redirect(w, r, "/nintendo", "Spieler zugeordnet")
+	redirect(w, r, "/einstellungen/nintendo", "Spieler zugeordnet")
 }
 
 // nintendoToday is the play time a profile had today according to Nintendo.

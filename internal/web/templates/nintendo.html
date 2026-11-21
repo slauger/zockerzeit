@@ -1,5 +1,6 @@
 {{define "content"}}
 {{$d := .Data}}
+<a class="crumb" href="/einstellungen">Einstellungen</a>
 <div class="page-head">
   <h1>Nintendo</h1>
 </div>
@@ -18,8 +19,8 @@
       <p class="muted">{{if .LastSync.IsZero}}Noch nicht abgerufen{{else}}Zuletzt abgerufen {{datetime .LastSync}} Uhr{{end}}</p>
     </div>
     <div class="buttons">
-      <form method="post" action="/nintendo/sync"><button>Jetzt abrufen</button></form>
-      <form method="post" action="/nintendo/{{.ID}}/entfernen" onsubmit="return confirm('Nintendo-Account {{.Label}} trennen?')"><button class="link danger-text">Trennen</button></form>
+      <form method="post" action="/einstellungen/nintendo/sync"><button>Jetzt abrufen</button></form>
+      <form method="post" action="/einstellungen/nintendo/{{.ID}}/entfernen" onsubmit="return confirm('Nintendo-Account {{.Label}} trennen?')"><button class="link danger-text">Trennen</button></form>
     </div>
   </header>
   {{if .LastError}}<p class="tile-note">Fehler beim letzten Abruf: {{.LastError}}</p>{{end}}
@@ -33,7 +34,7 @@
         <h3>{{.Label}} <span class="muted">{{.Model}}</span></h3>
         <p class="muted">Heute {{dur (minutes .Today)}}</p>
       </div>
-      <form method="post" action="/nintendo/konsole" class="inline-form">
+      <form method="post" action="/einstellungen/nintendo/konsole" class="inline-form">
         <input type="hidden" name="device_id" value="{{.DeviceID}}">
         <label>Gerät in Zockerzeit
           <select name="mac" onchange="this.form.submit()">
@@ -50,7 +51,7 @@
       <li>
         {{if .ImageURI}}<img src="{{.ImageURI}}" alt="" width="40" height="40" referrerpolicy="no-referrer">{{else}}<span class="avatar small" aria-hidden="true">{{initial .Nickname}}</span>{{end}}
         <span class="player-name"><strong>{{.Nickname}}</strong><span class="muted">heute {{dur (minutes .Today)}}{{if .Games}}, {{.Games}} {{if eq .Games 1}}Spiel{{else}}Spiele{{end}}{{end}}</span></span>
-        <form method="post" action="/nintendo/spieler" class="inline-form">
+        <form method="post" action="/einstellungen/nintendo/spieler" class="inline-form">
           <input type="hidden" name="player_id" value="{{.PlayerID}}">
           <label>gehört zu
             <select name="profile" onchange="this.form.submit()">
@@ -78,7 +79,7 @@
     <li>Auf der Seite „Verknüpfung“ erscheint der Knopf <em>„Dieses Benutzerkonto auswählen“</em>. Nicht anklicken, sondern mit der rechten Maustaste <em>„Link-Adresse kopieren“</em>. Der Link beginnt mit <code>npf54789befb391a838://auth</code>.</li>
     <li>Den Link hier einfügen:</li>
   </ol>
-  <form method="post" action="/nintendo/verbinden" class="connect-form">
+  <form method="post" action="/einstellungen/nintendo/verbinden" class="connect-form">
     <input type="hidden" name="key" value="{{$d.LoginKey}}">
     <label>Name für diesen Account <input name="label" placeholder="z. B. Simon" required></label>
     <label>Kopierter Link <input name="redirect" placeholder="npf54789befb391a838://auth#session_token_code=..." required autocomplete="off"></label>
@@ -86,7 +87,7 @@
   </form>
   {{else}}
   <p class="muted">Für jeden Nintendo-Account, der Konsolen in der Jugendschutz-App verwaltet, einmal verbinden. Zockerzeit speichert nur ein verschlüsseltes Anmelde-Token, kein Passwort.</p>
-  <form method="post" action="/nintendo/login"><button class="primary">Account verbinden</button></form>
+  <form method="post" action="/einstellungen/nintendo/login"><button class="primary">Account verbinden</button></form>
   {{end}}
 </section>
 {{end}}

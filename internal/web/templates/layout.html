@@ -19,8 +19,7 @@
     <a href="/regeln" {{if eq .Nav "regeln"}}aria-current="page"{{end}}>Regeln</a>
     <a href="/geraete" {{if or (eq .Nav "geraete") (eq .Nav "geraet")}}aria-current="page"{{end}}>Geräte</a>
     <a href="/protokoll" {{if eq .Nav "protokoll"}}aria-current="page"{{end}}>Protokoll</a>
-    <a href="/nintendo" {{if eq .Nav "nintendo"}}aria-current="page"{{end}}>Nintendo</a>
-    <a href="/einstellungen" {{if eq .Nav "einstellungen"}}aria-current="page"{{end}}>Einstellungen</a>
+    <a href="/einstellungen" {{if or (eq .Nav "einstellungen") (eq .Nav "nintendo")}}aria-current="page"{{end}}>Einstellungen</a>
   </nav>
   {{if .Auth}}<form method="post" action="/logout" class="logout"><button class="link">Abmelden</button></form>{{end}}
 </header>
