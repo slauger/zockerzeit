@@ -202,6 +202,37 @@ var migrations = []string{
 	CREATE INDEX samples_profile_type_ts ON samples (profile_id, device_type, ts);`,
 	`ALTER TABLE devices ADD COLUMN blocker TEXT NOT NULL DEFAULT 'wlan';`,
 	`CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);`,
+	`CREATE TABLE nintendo_accounts (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		label TEXT NOT NULL,
+		account_id TEXT NOT NULL,
+		session_token TEXT NOT NULL,
+		last_sync INTEGER NOT NULL DEFAULT 0,
+		last_error TEXT NOT NULL DEFAULT ''
+	);
+	CREATE TABLE nintendo_devices (
+		device_id TEXT PRIMARY KEY,
+		account INTEGER NOT NULL,
+		label TEXT NOT NULL,
+		model TEXT NOT NULL DEFAULT '',
+		device_mac TEXT NOT NULL DEFAULT ''
+	);
+	CREATE TABLE nintendo_players (
+		player_id TEXT NOT NULL,
+		device_id TEXT NOT NULL,
+		nickname TEXT NOT NULL,
+		image_uri TEXT NOT NULL DEFAULT '',
+		profile_id TEXT NOT NULL DEFAULT '',
+		PRIMARY KEY (player_id, device_id)
+	);
+	CREATE TABLE nintendo_usage (
+		date TEXT NOT NULL,
+		device_id TEXT NOT NULL,
+		player_id TEXT NOT NULL,
+		minutes INTEGER NOT NULL,
+		games TEXT NOT NULL DEFAULT '[]',
+		PRIMARY KEY (date, device_id, player_id)
+	);`,
 }
 
 // Open opens (and migrates) the database at path. Use ":memory:" for tests.

@@ -1,0 +1,93 @@
+{{define "content"}}
+{{$d := .Data}}
+<div class="page-head">
+  <h1>Nintendo</h1>
+</div>
+<p class="lead">Spielzeit direkt aus der Nintendo-Jugendschutz-App, pro Konsole und pro Benutzer. So weiß Zockerzeit auch bei gemeinsam genutzten Konsolen, wer gespielt hat. Die Daten kommen alle fünf Minuten, aber nur, wenn die Konsole online ist.</p>
+
+{{if not $d.Enabled}}
+<div class="banner warn">Die Nintendo-Anbindung ist nicht eingerichtet: Sie braucht ein festes <code>ZOCKERZEIT_SESSION_SECRET</code>, mit dem die Zugangsdaten verschlüsselt werden.</div>
+{{else}}
+
+{{range $d.Accounts}}
+{{$a := .}}
+<section class="card nintendo-account">
+  <header class="nintendo-head">
+    <div>
+      <h2>{{.Label}}</h2>
+      <p class="muted">{{if .LastSync.IsZero}}Noch nicht abgerufen{{else}}Zuletzt abgerufen {{datetime .LastSync}} Uhr{{end}}</p>
+    </div>
+    <div class="buttons">
+      <form method="post" action="/nintendo/sync"><button>Jetzt abrufen</button></form>
+      <form method="post" action="/nintendo/{{.ID}}/entfernen" onsubmit="return confirm('Nintendo-Account {{.Label}} trennen?')"><button class="link danger-text">Trennen</button></form>
+    </div>
+  </header>
+  {{if .LastError}}<p class="tile-note">Fehler beim letzten Abruf: {{.LastError}}</p>{{end}}
+
+  {{if not .Devices}}<p class="muted">Keine Konsolen mit diesem Account verknüpft.</p>{{end}}
+  {{range .Devices}}
+  {{$dev := .}}
+  <div class="nintendo-device">
+    <div class="nintendo-device-head">
+      <div>
+        <h3>{{.Label}} <span class="muted">{{.Model}}</span></h3>
+        <p class="muted">Heute {{dur (minutes .Today)}}</p>
+      </div>
+      <form method="post" action="/nintendo/konsole" class="inline-form">
+        <input type="hidden" name="device_id" value="{{.DeviceID}}">
+        <label>Gerät in Zockerzeit
+          <select name="mac" onchange="this.form.submit()">
+            <option value="">nicht zugeordnet</option>
+            {{range $d.Consoles}}<option value="{{.MAC}}" {{if eq .MAC $dev.DeviceMAC}}selected{{end}}>{{.Name}}</option>{{end}}
+          </select>
+        </label>
+      </form>
+    </div>
+    {{if .Players}}
+    <ul class="nintendo-players">
+      {{range .Players}}
+      {{$pl := .}}
+      <li>
+        {{if .ImageURI}}<img src="{{.ImageURI}}" alt="" width="40" height="40" referrerpolicy="no-referrer">{{else}}<span class="avatar small" aria-hidden="true">{{initial .Nickname}}</span>{{end}}
+        <span class="player-name"><strong>{{.Nickname}}</strong><span class="muted">heute {{dur (minutes .Today)}}{{if .Games}}, {{.Games}} {{if eq .Games 1}}Spiel{{else}}Spiele{{end}}{{end}}</span></span>
+        <form method="post" action="/nintendo/spieler" class="inline-form">
+          <input type="hidden" name="player_id" value="{{.PlayerID}}">
+          <label>gehört zu
+            <select name="profile" onchange="this.form.submit()">
+              <option value="">niemandem</option>
+              {{range $d.Profiles}}<option value="{{.ID}}" {{if eq .ID $pl.ProfileID}}selected{{end}}>{{.Name}}</option>{{end}}
+            </select>
+          </label>
+        </form>
+      </li>
+      {{end}}
+    </ul>
+    {{else}}
+    <p class="muted">Noch keine Spieler gesehen. Neue Konsolen liefern erst Daten, wenn auf ihnen gespielt wurde.</p>
+    {{end}}
+  </div>
+  {{end}}
+</section>
+{{end}}
+
+<section class="card" id="verbinden">
+  <h2>Nintendo-Account verbinden</h2>
+  {{if $d.LoginKey}}
+  <ol class="steps">
+    <li><a href="{{$d.LoginURL}}" target="_blank" rel="noopener noreferrer"><strong>Bei Nintendo anmelden</strong></a> (öffnet sich in einem neuen Tab) und den Account wählen, der die Konsolen in der Jugendschutz-App verwaltet.</li>
+    <li>Auf der Seite „Verknüpfung“ erscheint der Knopf <em>„Dieses Benutzerkonto auswählen“</em>. Nicht anklicken, sondern mit der rechten Maustaste <em>„Link-Adresse kopieren“</em>. Der Link beginnt mit <code>npf54789befb391a838://auth</code>.</li>
+    <li>Den Link hier einfügen:</li>
+  </ol>
+  <form method="post" action="/nintendo/verbinden" class="connect-form">
+    <input type="hidden" name="key" value="{{$d.LoginKey}}">
+    <label>Name für diesen Account <input name="label" placeholder="z. B. Simon" required></label>
+    <label>Kopierter Link <input name="redirect" placeholder="npf54789befb391a838://auth#session_token_code=..." required autocomplete="off"></label>
+    <button class="primary">Verbinden</button>
+  </form>
+  {{else}}
+  <p class="muted">Für jeden Nintendo-Account, der Konsolen in der Jugendschutz-App verwaltet, einmal verbinden. Zockerzeit speichert nur ein verschlüsseltes Anmelde-Token, kein Passwort.</p>
+  <form method="post" action="/nintendo/login"><button class="primary">Account verbinden</button></form>
+  {{end}}
+</section>
+{{end}}
+{{end}}

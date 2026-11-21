@@ -17,6 +17,7 @@ Zockerzeit ("gaming time") tracks and limits how long kids play by blocking thei
 - ⛔ **Automatic blocking** - per device either disconnect it from the WLAN (UniFi) or cut only its internet access (FRITZ!Box, TR-064), nothing to install on the devices
 - 👆 **Parent controls** - one tap for bonus minutes, free play, a pause for an hour or until tomorrow
 - 👫 **Shared consoles** - release a sibling's console for 30 minutes, the time counts on the right budget
+- 🍄 **Nintendo parental controls** - connect one or more Nintendo accounts and see play time per console and per user, mapped to your kids
 - 📱 **Kid app** - an installable app (PWA) per kid that shows the remaining time, so nobody has to ask
 - 🔔 **Push warnings** - optional ntfy notifications 10 and 5 minutes before the end
 - 🧪 **Test mode** - records and shows decisions without blocking anything (default)
@@ -102,7 +103,8 @@ See the [chart README](charts/zockerzeit/README.md) for all values. Run a single
 - Internet-only blocking via the FRITZ!Box works for devices in its home network only. The FRITZ!Box cannot block single devices in its guest network, and the device must have been online once so the FRITZ!Box knows it.
 - Devices are identified by MAC address. A device with a new (random) MAC shows up as a new, unmanaged device.
 - Consoles in standby with downloads enabled may stay connected and count as playing. If the history shows play time at night, disable downloads in sleep mode or switch the device to the phone type.
-- Zockerzeit sees connection times and traffic volume, not which game or app is used.
+- Without the Nintendo integration Zockerzeit sees connection times and traffic volume, not which game or app is used.
+- The Nintendo integration uses the undocumented API of the Nintendo Switch Parental Controls app, as implemented by the community library [pynintendoparental](https://github.com/pantherale0/pynintendoparental). It can break when Nintendo changes it. Consoles only report play time while they are online. Session tokens are stored encrypted with `ZOCKERZEIT_SESSION_SECRET`.
 - Blocks are stored in the controller. If Zockerzeit is down, blocked devices stay blocked until it is back or you unblock them in UniFi.
 
 ## Configuration

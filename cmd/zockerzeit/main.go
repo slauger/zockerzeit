@@ -19,7 +19,9 @@ import (
 	"github.com/slauger/zockerzeit/internal/demo"
 	"github.com/slauger/zockerzeit/internal/engine"
 	"github.com/slauger/zockerzeit/internal/fritzbox"
+	"github.com/slauger/zockerzeit/internal/nintendo"
 	"github.com/slauger/zockerzeit/internal/notify"
+	"github.com/slauger/zockerzeit/internal/secret"
 	"github.com/slauger/zockerzeit/internal/store"
 	"github.com/slauger/zockerzeit/internal/unifi"
 	"github.com/slauger/zockerzeit/internal/web"
@@ -107,9 +109,21 @@ func run() error {
 	if cfg.Auth.AdminPassword == "" {
 		log.Warn("no admin password configured: the parent UI is open to everyone on the network")
 	}
-	handler, err := web.New(st, eng, web.Options{
-		AdminPassword: cfg.Auth.AdminPassword, SessionSecret: cfg.Auth.SessionSecret, Version: version,
-	}, log)
+	webOpts := web.Options{AdminPassword: cfg.Auth.AdminPassword, SessionSecret: cfg.Auth.SessionSecret, Version: version}
+	var syncer *nintendo.Syncer
+	switch {
+	case *demoMode:
+	case cfg.Auth.SessionSecret == "":
+		log.Warn("Nintendo integration disabled: set ZOCKERZEIT_SESSION_SECRET to store tokens encrypted")
+	default:
+		box, err := secret.NewBox([]byte(cfg.Auth.SessionSecret), "nintendo")
+		if err != nil {
+			return err
+		}
+		syncer = nintendo.NewSyncer(st, nintendo.New(cfg.Timezone), box, 5*time.Minute, log)
+		webOpts.Nintendo = syncer
+	}
+	handler, err := web.New(st, eng, webOpts, log)
 	if err != nil {
 		return err
 	}
@@ -118,6 +132,9 @@ func run() error {
 	defer stop()
 
 	go eng.Run(ctx)
+	if syncer != nil {
+		go syncer.Run(ctx)
+	}
 
 	srv := &http.Server{
 		Addr:              cfg.Listen,

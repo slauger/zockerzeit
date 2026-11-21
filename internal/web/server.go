@@ -20,6 +20,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/slauger/zockerzeit/internal/engine"
@@ -49,11 +50,20 @@ type Engine interface {
 	SaveSettings(engine.Settings) error
 }
 
+// Nintendo connects Nintendo parental controls accounts. Optional.
+type Nintendo interface {
+	LoginURL() (string, string, error)
+	Connect(ctx context.Context, label, redirect, verifier string) (int64, error)
+	Remove(id int64) error
+	SyncAll(ctx context.Context)
+}
+
 // Options configure the web server.
 type Options struct {
 	AdminPassword string
 	SessionSecret string
 	Version       string
+	Nintendo      Nintendo
 }
 
 // Server is the HTTP handler.
@@ -65,11 +75,21 @@ type Server struct {
 	secret []byte
 	pages  map[string]*template.Template
 	mux    *http.ServeMux
+
+	loginMu sync.Mutex
+	logins  map[string]pendingLogin
+}
+
+// pendingLogin keeps the PKCE verifier of a started Nintendo login.
+type pendingLogin struct {
+	url      string
+	verifier string
+	created  time.Time
 }
 
 // New creates the HTTP handler.
 func New(st *store.Store, eng Engine, opts Options, log *slog.Logger) (*Server, error) {
-	s := &Server{store: st, engine: eng, opts: opts, log: log, pages: map[string]*template.Template{}}
+	s := &Server{store: st, engine: eng, opts: opts, log: log, pages: map[string]*template.Template{}, logins: map[string]pendingLogin{}}
 	if opts.SessionSecret != "" {
 		s.secret = []byte(opts.SessionSecret)
 	} else {
@@ -78,7 +98,7 @@ func New(st *store.Store, eng Engine, opts Options, log *slog.Logger) (*Server, 
 			return nil, err
 		}
 	}
-	for _, page := range []string{"dashboard", "verlauf", "regeln", "geraete", "geraet", "protokoll", "einstellungen", "login", "kind"} {
+	for _, page := range []string{"dashboard", "verlauf", "regeln", "geraete", "geraet", "protokoll", "einstellungen", "nintendo", "login", "kind"} {
 		t, err := template.New(page).Funcs(funcs(eng.Location())).ParseFS(templateFS, "templates/layout.html", "templates/"+page+".html")
 		if err != nil {
 			return nil, fmt.Errorf("template %s: %w", page, err)
@@ -114,6 +134,13 @@ func (s *Server) routes() {
 	m.Handle("GET /geraet/{mac}", s.auth(s.deviceDetail))
 	m.Handle("GET /protokoll", s.auth(s.eventsPage))
 	m.Handle("GET /einstellungen", s.auth(s.settingsPage))
+	m.Handle("GET /nintendo", s.auth(s.nintendoPage))
+	m.Handle("POST /nintendo/login", s.auth(s.nintendoLogin))
+	m.Handle("POST /nintendo/verbinden", s.auth(s.nintendoConnect))
+	m.Handle("POST /nintendo/sync", s.auth(s.nintendoSync))
+	m.Handle("POST /nintendo/konsole", s.auth(s.nintendoMapDevice))
+	m.Handle("POST /nintendo/spieler", s.auth(s.nintendoMapPlayer))
+	m.Handle("POST /nintendo/{id}/entfernen", s.auth(s.nintendoRemove))
 	m.Handle("POST /einstellungen", s.auth(s.saveSettings))
 	m.Handle("POST /aktion", s.auth(s.action))
 	m.Handle("POST /aktion/{id}/beenden", s.auth(s.endOverride))
@@ -239,6 +266,8 @@ func redirect(w http.ResponseWriter, r *http.Request, to, flash string) {
 	}
 	http.Redirect(w, r, to+sep+"ok="+url.QueryEscape(flash), http.StatusSeeOther)
 }
+
+func urlQuery(v string) string { return url.QueryEscape(v) }
 
 func redirectErr(w http.ResponseWriter, r *http.Request, to string, err error) {
 	http.Redirect(w, r, to+"?fehler="+url.QueryEscape(err.Error()), http.StatusSeeOther)

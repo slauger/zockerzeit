@@ -18,6 +18,7 @@ import (
 // --- dashboard ----------------------------------------------------------
 
 type dashboardData struct {
+	Nintendo map[string]nintendoToday
 	Views    []engine.ProfileView
 	Profiles []store.Profile
 	Devices  []store.Device
@@ -41,6 +42,7 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	s.render(w, r, "dashboard", "Übersicht", dashboardData{
 		Views: views, Profiles: profiles, Devices: devices, Shared: shared, PolledAt: s.engine.Snapshot().At,
+		Nintendo: s.nintendoByProfile(),
 	})
 }
 

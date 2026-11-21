@@ -49,6 +49,10 @@
     {{end}}
   </div>
 
+  {{with index $.Data.Nintendo $p.ID}}
+  <p class="nintendo-line">Laut Nintendo heute <strong>{{dur (minutes .Minutes)}}</strong> gespielt{{range $i, $x := .Parts}}{{if eq $i 0}}: {{else}}, {{end}}{{$x.Console}} {{dur (minutes $x.Minutes)}}{{end}}</p>
+  {{end}}
+
   {{if .Devices}}
   <ul class="chips">
     {{range .Devices}}

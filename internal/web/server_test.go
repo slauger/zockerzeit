@@ -1,7 +1,9 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -453,5 +455,123 @@ func TestSettingsPage(t *testing.T) {
 	ev, _ := e.store.Events(5, berlin, "config")
 	if len(ev) < 3 {
 		t.Fatalf("settings changes not logged: %+v", ev)
+	}
+}
+
+type fakeNintendo struct {
+	st      *store.Store
+	synced  int
+	removed int64
+}
+
+func (f *fakeNintendo) LoginURL() (string, string, error) {
+	return "https://accounts.example/authorize?x=1", "VERIFIER", nil
+}
+
+func (f *fakeNintendo) Connect(_ context.Context, label, redirect, verifier string) (int64, error) {
+	if !strings.Contains(redirect, "session_token_code=") || verifier != "VERIFIER" {
+		return 0, errors.New("the URL contains no session_token_code")
+	}
+	id, err := f.st.AddNintendoAccount(store.NintendoAccount{Label: label, AccountID: "acc", SessionToken: "enc"})
+	if err != nil {
+		return 0, err
+	}
+	today := time.Now().In(berlin).Format("2006-01-02")
+	_ = f.st.UpsertNintendoDevice(store.NintendoDevice{DeviceID: "D1", Account: id, Label: "Switch 2", Model: "Switch 2"})
+	_ = f.st.UpsertNintendoPlayer(store.NintendoPlayer{PlayerID: "P1", DeviceID: "D1", Nickname: "Spieler A"})
+	_ = f.st.UpsertNintendoUsage(store.NintendoUsage{Date: today, DeviceID: "D1", PlayerID: "P1", Minutes: 42, Games: []store.NintendoGame{{ApplicationID: "A", Minutes: 42}}})
+	return id, nil
+}
+
+func (f *fakeNintendo) Remove(id int64) error {
+	f.removed = id
+	return f.st.DeleteNintendoAccount(id)
+}
+
+func (f *fakeNintendo) SyncAll(context.Context) { f.synced++ }
+
+func TestNintendoPages(t *testing.T) {
+	st, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	if err := demo.Seed(st, time.Now().In(berlin)); err != nil {
+		t.Fatal(err)
+	}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	eng := engine.New(st, demo.NewController(), nil, engine.Options{Location: berlin}, log)
+	fn := &fakeNintendo{st: st}
+	h, err := New(st, eng, Options{Nintendo: fn}, log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	jar, _ := cookiejar.New(nil)
+	e := &env{t: t, store: st, srv: srv, client: &http.Client{Jar: jar}}
+
+	if _, body := e.get("/nintendo"); !strings.Contains(body, "Account verbinden") {
+		t.Fatal("connect button missing")
+	}
+	e.client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	resp, err := e.client.PostForm(srv.URL+"/nintendo/login", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	loc := resp.Header.Get("Location")
+	key := strings.TrimSuffix(strings.TrimPrefix(loc, "/nintendo?login="), "#verbinden")
+	e.client.CheckRedirect = nil
+	if _, body := e.get("/nintendo?login=" + key); !strings.Contains(body, "accounts.example") {
+		t.Fatal("login link missing")
+	}
+	if _, body := e.post("/nintendo/verbinden", url.Values{"key": {key}, "label": {"Papa"}, "redirect": {"falsch"}}); !strings.Contains(body, "session_token_code") {
+		t.Fatal("bad redirect should show the error and keep the login")
+	}
+	if _, body := e.post("/nintendo/verbinden", url.Values{"key": {"unknown"}}); !strings.Contains(body, "abgelaufen") {
+		t.Fatal("unknown login key accepted")
+	}
+	if _, body := e.post("/nintendo/verbinden", url.Values{"key": {key}, "label": {"Papa"}, "redirect": {"npf://auth#session_token_code=C"}}); !strings.Contains(body, "Papa verbunden") {
+		t.Fatal("connect failed")
+	}
+	if _, body := e.post("/nintendo/konsole", url.Values{"device_id": {"D1"}, "mac": {"98:B6:E9:00:00:01"}}); !strings.Contains(body, "Konsole zugeordnet") {
+		t.Fatal("mapping console failed")
+	}
+	if _, body := e.post("/nintendo/spieler", url.Values{"player_id": {"P1"}, "profile": {"max"}}); !strings.Contains(body, "Spieler zugeordnet") {
+		t.Fatal("mapping player failed")
+	}
+	if _, body := e.post("/nintendo/spieler", url.Values{"player_id": {"nope"}, "profile": {"max"}}); !strings.Contains(body, "banner err") {
+		t.Fatal("unknown player accepted")
+	}
+	if _, body := e.post("/nintendo/konsole", url.Values{"device_id": {"nope"}}); !strings.Contains(body, "banner err") {
+		t.Fatal("unknown console accepted")
+	}
+	_, body := e.get("/nintendo")
+	if !strings.Contains(body, "Spieler A") || !strings.Contains(body, "42 Min") {
+		t.Fatal("players or usage missing on the page")
+	}
+	if _, body := e.get("/"); !strings.Contains(body, "Laut Nintendo heute <strong>42 Min</strong>") || !strings.Contains(body, "Switch Kinderzimmer 42 Min") {
+		t.Fatal("dashboard Nintendo line missing")
+	}
+	if _, body := e.post("/nintendo/sync", nil); !strings.Contains(body, "abgerufen") || fn.synced != 1 {
+		t.Fatal("sync not triggered")
+	}
+	accs, _ := st.NintendoAccounts()
+	if _, body := e.post("/nintendo/"+strconv.FormatInt(accs[0].ID, 10)+"/entfernen", nil); !strings.Contains(body, "entfernt") {
+		t.Fatal("remove failed")
+	}
+	if _, body := e.post("/nintendo/abc/entfernen", nil); !strings.Contains(body, "banner err") {
+		t.Fatal("invalid id accepted")
+	}
+}
+
+func TestNintendoDisabled(t *testing.T) {
+	e := newEnv(t, "")
+	if _, body := e.get("/nintendo"); !strings.Contains(body, "nicht eingerichtet") {
+		t.Fatal("disabled notice missing")
+	}
+	if _, body := e.post("/nintendo/login", nil); !strings.Contains(body, "nicht eingerichtet") {
+		t.Fatal("login without Nintendo should fail")
 	}
 }
