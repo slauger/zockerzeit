@@ -939,3 +939,52 @@ func TestLoginThrottle(t *testing.T) {
 		t.Fatalf("client ip = %s", clientIP(r))
 	}
 }
+
+func TestFree(t *testing.T) {
+	e := newEnv(t, "")
+	e.nintendo()
+	now := time.Now().In(berlin)
+	if _, body := e.post("/aktion", url.Values{"action": {"free"}, "profile": {"max"}}); !strings.Contains(body, "Max: frei bis") {
+		t.Fatal("free until tomorrow failed")
+	}
+	ovs, _ := e.store.ActiveOverrides(now, berlin)
+	tomorrow := rules.StartOfDay(now).AddDate(0, 0, 1)
+	if len(ovs) != 1 || ovs[0].Kind != store.KindFree || !ovs[0].Until.After(now) || !ovs[0].Until.Before(tomorrow.AddDate(0, 0, 1)) {
+		t.Fatalf("overrides = %+v", ovs)
+	}
+	if _, body := e.get("/kind/max"); !strings.Contains(body, `<p class="kid-big">Frei</p>`) {
+		t.Fatal("free state missing in the kid app")
+	}
+	_, body := e.get("/")
+	if !strings.Contains(body, `<p class="time">Frei</p>`) || !strings.Contains(body, "keine Zeitfenster und Limits") {
+		t.Fatal("free state missing on the dashboard")
+	}
+	date := now.AddDate(0, 0, 3).Format("2006-01-02")
+	if _, body := e.post("/aktion", url.Values{"action": {"free"}, "profile": {"alle"}, "bis": {date}}); !strings.Contains(body, "Max und Mia: frei bis") {
+		t.Fatal("holiday for all kids failed")
+	}
+	ovs, _ = e.store.ActiveOverrides(now, berlin)
+	if len(ovs) != 3 || !ovs[2].Until.After(now.AddDate(0, 0, 3)) {
+		t.Fatalf("overrides = %+v", ovs)
+	}
+	for _, bad := range []url.Values{
+		{"action": {"free"}, "profile": {"niemand"}},
+		{"action": {"free"}, "profile": {"max"}, "bis": {"2000-01-01"}},
+		{"action": {"free"}, "profile": {"max"}, "bis": {"kaputt"}},
+		{"action": {"free"}, "profile": {"max"}, "bis": {now.AddDate(2, 0, 0).Format("2006-01-02")}},
+	} {
+		if _, body := e.post("/aktion", bad); !strings.Contains(body, "banner err") {
+			t.Errorf("expected error for %v", bad)
+		}
+	}
+
+	// The morning is the first window of the day after.
+	sched := rules.Schedule{time.Monday: {{Start: 15 * 60, End: 18 * 60}, {Start: 9 * 60, End: 12 * 60}}}
+	monday := time.Date(2026, 11, 23, 0, 0, 0, 0, berlin)
+	if got := morningOf(sched, monday.Add(13*time.Hour)); !got.Equal(monday.Add(9 * time.Hour)) {
+		t.Fatalf("morning = %v", got)
+	}
+	if got := morningOf(sched, monday.AddDate(0, 0, 1)); !got.Equal(monday.AddDate(0, 0, 1)) {
+		t.Fatalf("morning without window = %v", got)
+	}
+}

@@ -20,6 +20,7 @@ import (
 const (
 	KindBonus   = "bonus"   // extra minutes for the day of StartsAt
 	KindRelease = "release" // console lent to another kid until Until
+	KindFree    = "free"    // no windows and limits until Until, e.g. on holiday
 )
 
 // ErrNotFound is returned when a record does not exist.

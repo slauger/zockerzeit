@@ -239,8 +239,13 @@ func profileOverrides(profileID string, ovs []store.Override) (rules.Overrides, 
 			continue
 		}
 		list = append(list, o)
-		if o.Kind == store.KindBonus {
+		switch o.Kind {
+		case store.KindBonus:
 			out.BonusMinutes += o.Minutes
+		case store.KindFree:
+			if o.Until.After(out.AllowUntil) {
+				out.AllowUntil = o.Until
+			}
 		}
 	}
 	return out, list
@@ -251,7 +256,7 @@ func profileOverrides(profileID string, ovs []store.Override) (rules.Overrides, 
 // threshold.
 func (e *Engine) warn(ctx context.Context, v ProfileView, now time.Time) {
 	st := v.Status
-	if !v.Playing || !st.Allowed || st.Remaining < 0 {
+	if !v.Playing || !st.Allowed || st.Free || st.Remaining < 0 {
 		return
 	}
 	deadline := now.Add(st.Remaining).Truncate(time.Minute)

@@ -153,7 +153,7 @@ func TestEvaluate(t *testing.T) {
 			name: "allow wins over window and quota", now: at(20, 0),
 			usage:   Usage{Today: 200 * time.Minute, Week: 400 * time.Minute},
 			ov:      Overrides{AllowUntil: at(20, 30)},
-			allowed: true, reason: "Freigegeben bis 20:30", remaining: 30 * time.Minute,
+			allowed: true, reason: "Frei bis 20:30", remaining: 30 * time.Minute,
 		},
 		{
 			name: "expired overrides are ignored", now: at(16, 0),

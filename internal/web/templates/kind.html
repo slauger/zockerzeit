@@ -22,7 +22,11 @@
   </header>
 
   <div class="kid-main">
-    {{if $v.Status.Allowed}}
+    {{if $v.Status.Free}}
+      <p class="kid-label">Heute gibt es kein Limit.</p>
+      <p class="kid-big">Frei</p>
+      <p class="kid-label">{{$v.Status.Reason}} Uhr</p>
+    {{else if $v.Status.Allowed}}
       <p class="kid-label">Du kannst noch</p>
       <p class="kid-big">{{remaining $v.Status}}</p>
       <p class="kid-label">zocken.</p>
@@ -30,9 +34,9 @@
       <p class="kid-big">Pause</p>
       <p class="kid-label">{{$v.Status.Reason}}</p>
     {{end}}
-    {{with cells $v.Status}}
+    {{if not $v.Status.Free}}{{with cells $v.Status}}
     <div class="energy kid-energy" aria-hidden="true">{{range .}}<span class="cell {{.}}"></span>{{end}}</div>
-    {{end}}
+    {{end}}{{end}}
     {{if $v.Status.LimitToday}}<p class="kid-small">Heute {{dur $v.Status.UsedToday}} von {{$v.Status.LimitToday}} Min gezockt</p>{{end}}
     {{if $v.Status.LimitWeek}}<p class="kid-small">Diese Woche {{dur $v.Status.UsedWeek}} von {{dur (minutes $v.Status.LimitWeek)}}</p>{{end}}
   </div>

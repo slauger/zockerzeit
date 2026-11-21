@@ -43,6 +43,8 @@ type Status struct {
 	Remaining  time.Duration `json:"remaining"`
 	InWindow   bool          `json:"inWindow"`
 	NextWindow time.Time     `json:"nextWindow"`
+	// Free is true while the rules are off (AllowUntil), e.g. on holiday.
+	Free bool `json:"free"`
 }
 
 // Unlimited marks a Status.Remaining without an upper bound.
@@ -72,8 +74,8 @@ func Evaluate(l Limits, u Usage, o Overrides, now time.Time) Status {
 		return st
 	}
 	if o.AllowUntil.After(now) {
-		st.Allowed = true
-		st.Reason = "Freigegeben bis " + formatUntil(o.AllowUntil, now)
+		st.Allowed, st.Free = true, true
+		st.Reason = "Frei bis " + formatUntil(o.AllowUntil, now)
 		st.Remaining = o.AllowUntil.Sub(now)
 		return st
 	}

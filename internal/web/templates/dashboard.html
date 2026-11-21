@@ -16,6 +16,16 @@
 <div class="banner warn">{{range $i, $c := .}}{{if $i}}, {{end}}<strong>{{$c.Name}}</strong>{{end}} {{if eq (len .) 1}}gehört{{else}}gehören{{end}} noch niemandem, die Spielzeit darauf zählt für kein Kind. <a href="/konsolen">Zuordnen</a></div>
 {{end}}
 
+{{if .Views}}
+<form method="post" action="/aktion" class="inline-form holiday">
+  <input type="hidden" name="action" value="free">
+  <input type="hidden" name="profile" value="alle">
+  <span class="holiday-label">Urlaub oder Ferien: alle Kinder frei bis einschließlich</span>
+  <input type="date" name="bis" min="{{.At.Format "2006-01-02"}}" value="{{.At.Format "2006-01-02"}}" aria-label="Datum" required>
+  <button>Frei geben</button>
+</form>
+{{end}}
+
 <div class="players">
 {{range $i, $v := .Views}}
 {{$p := .Profile}}
@@ -28,23 +38,26 @@
   </header>
 
   <div class="meter-block {{if $st.Allowed}}is-allowed{{else}}is-paused{{end}}">
-    {{if $st.Allowed}}
+    {{if $st.Free}}
+      <p class="time">Frei</p>
+      <p class="time-caption">{{$st.Reason}} Uhr, keine Zeitfenster und Limits</p>
+    {{else if $st.Allowed}}
       <p class="time">{{remaining $st}}</p>
       <p class="time-caption">{{if $st.LimitToday}}noch spielbar{{else}}frei, kein Tageslimit{{end}}</p>
     {{else}}
       <p class="time">Pause</p>
       <p class="time-caption">{{$st.Reason}}</p>
     {{end}}
-    {{with cells $st}}
+    {{if not $st.Free}}{{with cells $st}}
     <div class="energy" role="img" aria-label="{{dur $st.UsedToday}} von {{$st.LimitToday}} Minuten heute gespielt">
       {{range .}}<span class="cell {{.}}"></span>{{end}}
     </div>
-    {{end}}
+    {{end}}{{end}}
     <dl class="budget">
       <div><dt>Heute</dt><dd>{{dur $st.UsedToday}}{{if $st.LimitToday}} von {{$st.LimitToday}} Min{{end}}</dd></div>
       <div><dt>Woche</dt><dd>{{dur $st.UsedWeek}}{{if $st.LimitWeek}} von {{dur (minutes $st.LimitWeek)}}{{end}}</dd></div>
     </dl>
-    {{if $st.Allowed}}<p class="reason">{{$st.Reason}}</p>{{end}}
+    {{if and $st.Allowed (not $st.Free)}}<p class="reason">{{$st.Reason}}</p>{{end}}
   </div>
 
   {{with index $.Data.Nintendo $p.ID}}{{if .Minutes}}
@@ -66,7 +79,7 @@
   <ul class="overrides">
     {{range .Overrides}}
     <li>
-      <span>{{.Note}}{{if ne .Kind "bonus"}}, bis {{clock .Until}} Uhr{{end}}</span>
+      <span>{{.Note}}{{if eq .Kind "release"}}, bis {{clock .Until}} Uhr{{end}}</span>
       <form method="post" action="/aktion/{{.ID}}/beenden"><button class="link">Beenden</button></form>
     </li>
     {{end}}
@@ -80,6 +93,13 @@
         {{range $m := (list 5 15 30)}}
         <form method="post" action="/aktion"><input type="hidden" name="action" value="bonus"><input type="hidden" name="profile" value="{{$p.ID}}"><input type="hidden" name="minutes" value="{{$m}}"><button>+{{$m}} Min</button></form>
         {{end}}
+      </div>
+    </div>
+    <div class="control-group">
+      <h3>Frei, ohne Zeitfenster und Limits</h3>
+      <div class="buttons">
+        <form method="post" action="/aktion"><input type="hidden" name="action" value="free"><input type="hidden" name="profile" value="{{$p.ID}}"><button>Bis morgen früh</button></form>
+        <form method="post" action="/aktion" class="free-until"><input type="hidden" name="action" value="free"><input type="hidden" name="profile" value="{{$p.ID}}"><input type="date" name="bis" min="{{$.Data.At.Format "2006-01-02"}}" value="{{$.Data.At.Format "2006-01-02"}}" aria-label="Frei bis einschließlich" required><button>Bis einschließlich</button></form>
       </div>
     </div>
   </div>

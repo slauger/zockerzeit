@@ -60,6 +60,10 @@ func (s *Server) action(w http.ResponseWriter, r *http.Request) {
 	minutes, _ := strconv.Atoi(r.FormValue("minutes"))
 	tomorrow := rules.StartOfDay(now).AddDate(0, 0, 1)
 
+	if r.FormValue("action") == "free" {
+		s.free(w, r, now)
+		return
+	}
 	o := store.Override{StartsAt: now, ProfileID: profileID, Minutes: minutes}
 	var msg string
 	switch r.FormValue("action") {
@@ -97,6 +101,69 @@ func (s *Server) action(w http.ResponseWriter, r *http.Request) {
 	_ = s.store.AddEvent(store.Event{TS: now, ProfileID: o.ProfileID, DeviceID: o.DeviceID, Kind: "parent", Message: msg})
 	s.applyNow(r)
 	redirect(w, r, back, msg)
+}
+
+// free switches the rules of one kid or all kids off until the next
+// morning, or including a date (bis=YYYY-MM-DD). A morning is the start of
+// the first time window of a day; after midnight the next morning is today's.
+func (s *Server) free(w http.ResponseWriter, r *http.Request, now time.Time) {
+	back := backTarget(r)
+	var day time.Time // the day whose morning ends the free time, zero for the next morning
+	if v := r.FormValue("bis"); v != "" {
+		d, err := time.ParseInLocation("2006-01-02", v, s.engine.Location())
+		if err != nil || d.Before(rules.StartOfDay(now)) || d.After(now.AddDate(1, 0, 0)) {
+			redirectErr(w, r, back, errors.New("bitte ein Datum ab heute und höchstens ein Jahr voraus wählen"))
+			return
+		}
+		day = d.AddDate(0, 0, 1)
+	}
+	var kids []store.Profile
+	if id := r.FormValue("profile"); id == "alle" {
+		kids, _ = s.store.Profiles()
+	} else if p, err := s.store.Profile(id); err == nil {
+		kids = []store.Profile{p}
+	}
+	if len(kids) == 0 {
+		redirectErr(w, r, back, errors.New("bitte ein Kind wählen"))
+		return
+	}
+	var names []string
+	var until time.Time
+	for _, p := range kids {
+		if day.IsZero() {
+			until = morningOf(p.Rules.Schedule, now)
+			if !until.After(now) {
+				until = morningOf(p.Rules.Schedule, rules.StartOfDay(now).AddDate(0, 0, 1))
+			}
+		} else {
+			until = morningOf(p.Rules.Schedule, day)
+		}
+		msg := fmt.Sprintf("%s hat frei bis %s Uhr", p.Name, until.Format("02.01. 15:04"))
+		o := store.Override{Kind: store.KindFree, ProfileID: p.ID, StartsAt: now, Until: until, Minutes: int(until.Sub(now).Minutes()), Note: msg}
+		if _, err := s.store.AddOverride(o); err != nil {
+			redirectErr(w, r, back, err)
+			return
+		}
+		_ = s.store.AddEvent(store.Event{TS: now, ProfileID: p.ID, Kind: "parent", Message: msg})
+		names = append(names, p.Name)
+	}
+	s.applyNow(r)
+	redirect(w, r, back, fmt.Sprintf("%s: frei bis %s Uhr", strings.Join(names, " und "), until.Format("02.01. 15:04")))
+}
+
+// morningOf is when the first time window of day starts, or midnight if
+// there is none.
+func morningOf(s rules.Schedule, day time.Time) time.Time {
+	start := rules.StartOfDay(day)
+	ws := s[start.Weekday()]
+	if len(ws) == 0 {
+		return start
+	}
+	m := ws[0].Start
+	for _, w := range ws {
+		m = min(m, w.Start)
+	}
+	return start.Add(time.Duration(m) * time.Minute)
 }
 
 func (s *Server) endOverride(w http.ResponseWriter, r *http.Request) {
