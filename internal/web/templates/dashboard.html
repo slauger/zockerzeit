@@ -80,8 +80,9 @@
     <div class="control-group">
       <h3>Mehr Zeit</h3>
       <div class="buttons">
-        <form method="post" action="/aktion"><input type="hidden" name="action" value="bonus"><input type="hidden" name="profile" value="{{$p.ID}}"><input type="hidden" name="minutes" value="15"><button>+15 Min</button></form>
-        <form method="post" action="/aktion"><input type="hidden" name="action" value="bonus"><input type="hidden" name="profile" value="{{$p.ID}}"><input type="hidden" name="minutes" value="30"><button>+30 Min</button></form>
+        {{range $m := (list 5 15 30)}}
+        <form method="post" action="/aktion"><input type="hidden" name="action" value="bonus"><input type="hidden" name="profile" value="{{$p.ID}}"><input type="hidden" name="minutes" value="{{$m}}"><button>+{{$m}} Min</button></form>
+        {{end}}
         <form method="post" action="/aktion"><input type="hidden" name="action" value="allow"><input type="hidden" name="profile" value="{{$p.ID}}"><input type="hidden" name="minutes" value="30"><button title="Gilt auch außerhalb der Zeitfenster und über dem Limit">30 Min frei</button></form>
       </div>
     </div>
