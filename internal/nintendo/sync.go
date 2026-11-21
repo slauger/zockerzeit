@@ -107,6 +107,41 @@ func (s *Syncer) SyncAll(ctx context.Context) {
 			s.log.Error("storing Nintendo sync state failed", "err", err)
 		}
 	}
+	s.cacheImages(ctx)
+}
+
+// cacheImages copies covers and avatars that are not stored yet into the
+// database, so the pages never load them from Nintendo.
+func (s *Syncer) cacheImages(ctx context.Context) {
+	have, err := s.store.ImageKeys()
+	if err != nil {
+		s.log.Error("listing images failed", "err", err)
+		return
+	}
+	var sources []string
+	titles, _ := s.store.NintendoTitles()
+	for _, t := range titles {
+		sources = append(sources, t.ImageURI)
+	}
+	players, _ := s.store.NintendoPlayers()
+	for _, p := range players {
+		sources = append(sources, p.ImageURI)
+	}
+	for _, src := range sources {
+		key := store.ImageKey(src)
+		if src == "" || have[key] {
+			continue
+		}
+		have[key] = true
+		ct, data, err := s.client.FetchImage(ctx, src)
+		if err != nil {
+			s.log.Warn("fetching image failed", "url", src, "err", err)
+			continue
+		}
+		if err := s.store.SaveImage(store.Image{Source: src, ContentType: ct, Data: data, Fetched: s.now()}); err != nil {
+			s.log.Error("storing image failed", "err", err)
+		}
+	}
 }
 
 func (s *Syncer) account(a store.NintendoAccount) (*Account, error) {

@@ -62,6 +62,15 @@ func TestSyncer(t *testing.T) {
 		t.Fatalf("expected title list error for DEV2, got %q", accs[0].LastError)
 	}
 
+	// Covers and avatars are fetched once; unreachable ones are skipped.
+	if err := st.UpsertNintendoTitle(store.NintendoTitle{ApplicationID: "0100Z", Name: "Bild", ImageURI: f.base + "/img/ok.png?x=1"}); err != nil {
+		t.Fatal(err)
+	}
+	s.SyncAll(ctx)
+	if _, err := st.Image(store.ImageKey(f.base + "/img/ok.png?x=2")); err != nil {
+		t.Fatalf("cover not cached: %v", err)
+	}
+
 	// A fresh syncer decrypts the stored token.
 	s2 := NewSyncer(st, c, box, time.Minute, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	s2.SyncAll(ctx)

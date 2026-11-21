@@ -134,6 +134,7 @@ func (s *Server) routes() {
 	m.Handle("GET /geraet/{mac}", s.auth(s.deviceDetail))
 	m.Handle("GET /protokoll", s.auth(s.eventsPage))
 	m.Handle("GET /einstellungen", s.auth(s.settingsPage))
+	m.Handle("GET /bild/{key}", s.auth(s.image))
 	m.Handle("GET /einstellungen/nintendo", s.auth(s.nintendoPage))
 	m.Handle("POST /einstellungen/nintendo/login", s.auth(s.nintendoLogin))
 	m.Handle("POST /einstellungen/nintendo/verbinden", s.auth(s.nintendoConnect))
@@ -153,7 +154,9 @@ func (s *Server) routes() {
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("X-Frame-Options", "DENY")
-	w.Header().Set("Referrer-Policy", "same-origin")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	// Images only from Zockerzeit itself; covers and avatars are stored copies.
+	w.Header().Set("Content-Security-Policy", "img-src 'self' data:")
 	s.mux.ServeHTTP(w, r)
 }
 

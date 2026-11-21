@@ -65,6 +65,18 @@ func TestNintendo(t *testing.T) {
 		t.Fatalf("titles = %+v", titles)
 	}
 
+	check(s.SaveImage(Image{Source: "https://img/a.png?x=1", ContentType: "image/png", Data: []byte{1}, Fetched: time.Unix(5, 0)}))
+	img, err := s.Image(ImageKey("https://img/a.png?x=2"))
+	if err != nil || img.ContentType != "image/png" || len(img.Data) != 1 || img.Fetched.Unix() != 5 {
+		t.Fatalf("image = %+v, %v", img, err)
+	}
+	if keys, _ := s.ImageKeys(); !keys[img.Key] || len(keys) != 1 {
+		t.Fatalf("image keys = %v", keys)
+	}
+	if _, err := s.Image("nope"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing image: %v", err)
+	}
+
 	check(s.DeleteNintendoAccount(id))
 	accs, _ = s.NintendoAccounts()
 	devs, _ = s.NintendoDevices()

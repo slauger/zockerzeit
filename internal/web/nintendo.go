@@ -57,6 +57,7 @@ func (s *Server) nintendoPage(w http.ResponseWriter, r *http.Request) {
 	players, _ := s.store.NintendoPlayers()
 	usage, _ := s.store.NintendoUsageOn(s.engine.Now().Format("2006-01-02"))
 	titles, _ := s.store.NintendoTitles()
+	images, _ := s.store.ImageKeys()
 	data.Profiles, _ = s.store.Profiles()
 	managed, _ := s.store.Devices()
 	for _, d := range managed {
@@ -76,6 +77,7 @@ func (s *Server) nintendoPage(w http.ResponseWriter, r *http.Request) {
 					continue
 				}
 				pv := nintendoPlayerView{NintendoPlayer: p}
+				pv.ImageURI = localImage(images, p.ImageURI)
 				for _, u := range usage {
 					if u.DeviceID == d.DeviceID && u.PlayerID == p.PlayerID {
 						pv.Today = u.Minutes
@@ -274,10 +276,11 @@ func (s *Server) nintendoGames(profileID string, from, to time.Time) gamesView {
 		return v
 	}
 	titles, _ := s.store.NintendoTitles()
+	images, _ := s.store.ImageKeys()
 	consoles := s.nintendoConsoleNames()
 	name := func(id string) (string, string) {
 		if t, ok := titles[strings.ToUpper(id)]; ok && t.Name != "" {
-			return t.Name, t.ImageURI
+			return t.Name, localImage(images, t.ImageURI)
 		}
 		return "Unbekanntes Spiel", ""
 	}
@@ -350,4 +353,32 @@ func (s *Server) nintendoConsoleNames() map[string]string {
 		}
 	}
 	return out
+}
+
+// localImage returns the path of the stored copy of an external image, or ""
+// when there is none yet. Pages never link to the original host.
+func localImage(have map[string]bool, src string) string {
+	if src == "" {
+		return ""
+	}
+	key := store.ImageKey(src)
+	if !have[key] {
+		return ""
+	}
+	return "/bild/" + key
+}
+
+func (s *Server) image(w http.ResponseWriter, r *http.Request) {
+	img, err := s.store.Image(r.PathValue("key"))
+	if errors.Is(err, store.ErrNotFound) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", img.ContentType)
+	w.Header().Set("Cache-Control", "private, max-age=604800")
+	_, _ = w.Write(img.Data)
 }

@@ -45,7 +45,7 @@
     <ol class="game-top">
       {{range .Games.Top}}
       <li>
-        {{if .ImageURI}}<img src="{{.ImageURI}}" alt="" width="48" height="48" loading="lazy" referrerpolicy="no-referrer">{{else}}<span class="game-cover" aria-hidden="true">{{initial .Name}}</span>{{end}}
+        {{if .ImageURI}}<img src="{{.ImageURI}}" alt="" width="48" height="48" loading="lazy">{{else}}<span class="game-cover" aria-hidden="true">{{initial .Name}}</span>{{end}}
         <div class="game-main">
           <div class="game-line"><strong>{{.Name}}</strong><span>{{dur (minutes .Minutes)}}</span></div>
           <div class="game-bar"><span style="width: {{.Percent}}%"></span></div>

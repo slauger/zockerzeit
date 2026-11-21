@@ -21,6 +21,7 @@ type fakeNintendo struct {
 	challenge  string
 	tokenCalls atomic.Int32
 	badSession bool
+	base       string
 }
 
 func (f *fakeNintendo) handler() http.Handler {
@@ -89,8 +90,23 @@ func (f *fakeNintendo) handler() http.Handler {
 		_, _ = io.WriteString(w, `{"parentalControlSetting":{"whitelistedApplicationList":[
 			{"applicationId":"0100b","title":"Bauen","imageUri":"https://img/bauen"},{"applicationId":"0100C","title":"Bild","imageUri":{"extraLarge":"https://img/c","other":7}},{"applicationId":"0100D","title":"ohne","imageUri":[1]},{"applicationId":"","title":"kaputt"}]}}`)
 	}))
+	mux.HandleFunc("GET /img/", func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/img/ok.png":
+			_, _ = w.Write(pngPixel)
+		case "/img/big.png":
+			_, _ = w.Write(append(append([]byte{}, pngPixel...), make([]byte, maxImageSize)...))
+		case "/img/text":
+			_, _ = io.WriteString(w, "hello")
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
 	return mux
 }
+
+// pngPixel is a 1x1 PNG.
+var pngPixel = []byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\rIDATx\x9cc\xf8\xff\xff?\x00\x05\xfe\x02\xfe\xa7\x35\x81\x84\x00\x00\x00\x00IEND\xaeB`\x82")
 
 func newFake(t *testing.T) (*fakeNintendo, *Client) {
 	t.Helper()
@@ -99,6 +115,8 @@ func newFake(t *testing.T) (*fakeNintendo, *Client) {
 	t.Cleanup(srv.Close)
 	c := New("Europe/Berlin")
 	c.AccountsURL, c.AccountAPIURL, c.MoonURL = srv.URL, srv.URL, srv.URL
+	c.allowHTTPImages = true
+	f.base = srv.URL
 	return f, c
 }
 
@@ -180,6 +198,27 @@ func TestInvalidSession(t *testing.T) {
 	f.badSession = true
 	if _, err := c.Account("SESSION").Devices(context.Background()); !errors.Is(err, ErrInvalidSession) {
 		t.Fatalf("expected ErrInvalidSession, got %v", err)
+	}
+}
+
+func TestFetchImage(t *testing.T) {
+	f, c := newFake(t)
+	ctx := context.Background()
+	ct, data, err := c.FetchImage(ctx, f.base+"/img/ok.png?x=1")
+	if err != nil || ct != "image/png" || len(data) != len(pngPixel) {
+		t.Fatalf("FetchImage = %q, %d bytes, %v", ct, len(data), err)
+	}
+	for _, bad := range []string{"/img/big.png", "/img/text", "/img/missing"} {
+		if _, _, err := c.FetchImage(ctx, f.base+bad); err == nil {
+			t.Errorf("FetchImage(%s) should fail", bad)
+		}
+	}
+	c.allowHTTPImages = false
+	if _, _, err := c.FetchImage(ctx, f.base+"/img/ok.png"); err == nil {
+		t.Fatal("http image accepted")
+	}
+	if _, _, err := c.FetchImage(ctx, "https://[::1"); err == nil {
+		t.Fatal("broken URL accepted")
 	}
 }
 

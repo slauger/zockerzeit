@@ -56,6 +56,8 @@ type Client struct {
 	// decide which calendar day a summary belongs to.
 	TimeZone string
 	Language string
+
+	allowHTTPImages bool // tests only
 }
 
 // New creates a client for the given IANA time zone.
@@ -370,6 +372,41 @@ func (a *Account) Titles(ctx context.Context, deviceID string) ([]Title, error) 
 		}
 	}
 	return out, nil
+}
+
+// maxImageSize limits downloaded covers and avatars.
+const maxImageSize = 2 << 20
+
+// FetchImage downloads a cover or avatar. Only https images are accepted.
+func (c *Client) FetchImage(ctx context.Context, src string) (string, []byte, error) {
+	u, err := url.Parse(src)
+	if err != nil || u.Scheme != "https" && !c.allowHTTPImages {
+		return "", nil, fmt.Errorf("image %q: only https URLs are fetched", src)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, src, nil)
+	if err != nil {
+		return "", nil, err
+	}
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return "", nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return "", nil, &HTTPError{Status: resp.StatusCode}
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxImageSize+1))
+	if err != nil {
+		return "", nil, err
+	}
+	if len(data) > maxImageSize {
+		return "", nil, fmt.Errorf("image %q is larger than %d bytes", src, maxImageSize)
+	}
+	ct := http.DetectContentType(data)
+	if !strings.HasPrefix(ct, "image/") {
+		return "", nil, fmt.Errorf("image %q is %s", src, ct)
+	}
+	return ct, data, nil
 }
 
 func deref(p *int) int {

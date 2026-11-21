@@ -239,6 +239,13 @@ var migrations = []string{
 		image_uri TEXT NOT NULL DEFAULT ''
 	);
 	CREATE INDEX nintendo_usage_date ON nintendo_usage (date);`,
+	`CREATE TABLE images (
+		key TEXT PRIMARY KEY,
+		source TEXT NOT NULL,
+		content_type TEXT NOT NULL,
+		data BLOB NOT NULL,
+		fetched INTEGER NOT NULL
+	);`,
 }
 
 // Open opens (and migrates) the database at path. Use ":memory:" for tests.

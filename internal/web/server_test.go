@@ -589,7 +589,27 @@ func TestHistoryGames(t *testing.T) {
 	}
 	_ = e.store.UpsertNintendoUsage(store.NintendoUsage{Date: now.Format("2006-01-02"), DeviceID: "demo-switch-1", PlayerID: "demo-max", Minutes: 30,
 		Games: []store.NintendoGame{{ApplicationID: "0100000000de0001", Minutes: 20}, {ApplicationID: "0100FFFF", Minutes: 10}, {ApplicationID: "0100000000DE0003"}}})
+	cover := "https://img.example/kart.png?x=1"
+	_ = e.store.UpsertNintendoTitle(store.NintendoTitle{ApplicationID: "0100000000DE0001", ImageURI: cover})
+	_ = e.store.UpsertNintendoTitle(store.NintendoTitle{ApplicationID: "0100000000DE0002", ImageURI: "https://img.example/not-cached.png"})
+	_ = e.store.SaveImage(store.Image{Source: cover, ContentType: "image/png", Data: []byte("png"), Fetched: now})
 	_, body := e.get("/verlauf?profil=max&tage=7")
+	if !strings.Contains(body, `src="/bild/`+store.ImageKey(cover)+`"`) || strings.Contains(body, "img.example") {
+		t.Fatal("covers must be served from the stored copy only")
+	}
+	resp, err := e.client.Get(e.srv.URL + "/bild/" + store.ImageKey(cover))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if string(b) != "png" || resp.Header.Get("Content-Type") != "image/png" || resp.Header.Get("Referrer-Policy") != "no-referrer" ||
+		!strings.Contains(resp.Header.Get("Content-Security-Policy"), "img-src 'self'") {
+		t.Fatalf("image response: %q %v", b, resp.Header)
+	}
+	if code, _ := e.get("/bild/unknown"); code != http.StatusNotFound {
+		t.Fatalf("unknown image: %d", code)
+	}
 	for _, want := range []string{"Kart-Rennen Turbo", "Unbekanntes Spiel", "Switch Kinderzimmer", "Pro Tag", "in 7 Tagen"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("games section misses %q", want)
