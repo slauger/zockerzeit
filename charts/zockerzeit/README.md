@@ -1,7 +1,7 @@
 # zockerzeit
 
 ![Version: 0.0.0](https://img.shields.io/badge/Version-0.0.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.0.0](https://img.shields.io/badge/AppVersion-0.0.0-informational?style=flat-square)
-Play time tracking and limits for kids by blocking devices on a UniFi WLAN
+Play time dashboard for parents with Nintendo Switch play time, UniFi presence and optional blocking
 
 ## Overview
 

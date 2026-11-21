@@ -1,6 +1,6 @@
 apiVersion: v2
 name: zockerzeit
-description: Play time tracking and limits for kids by blocking devices on a UniFi WLAN
+description: Play time dashboard for parents with Nintendo Switch play time, UniFi presence and optional blocking
 type: application
 version: 0.0.0
 appVersion: "0.0.0"
@@ -16,5 +16,7 @@ keywords:
   - unifi
   - parental-control
   - screen-time
+  - nintendo-switch
+  - fritzbox
 annotations:
   artifacthub.io/license: Apache-2.0
