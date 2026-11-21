@@ -19,14 +19,64 @@
 </section>
 </div>
 <div class="settings">
-<section class="card" id="app">
-  <h2>Als App installieren</h2>
-  <p class="muted">Zockerzeit läuft auch als App mit eigenem Symbol auf dem Startbildschirm, für dich und für die Kinder.</p>
-  <ul class="steps">
-    <li><strong>iPhone und iPad:</strong> die Seite in Safari öffnen, unten auf <em>Teilen</em> tippen und <em>Zum Home-Bildschirm</em> wählen.</li>
-    <li><strong>Android:</strong> in Chrome das Menü öffnen und <em>App installieren</em> wählen.</li>
-    <li><strong>Für die Kinder:</strong> auf deren Gerät die Kinderansicht öffnen ({{range $i, $p := .Profiles}}{{if $i}}, {{end}}<a href="/kind/{{$p.ID}}">/kind/{{$p.ID}}</a>{{end}}) und genauso installieren. Die Kinder-App zeigt nur die eigene Zeit und Statistik.</li>
-  </ul>
+<section class="card" id="zugang">
+  <h2>Zugang ohne Passwort</h2>
+  <p class="muted">Ein geheimer Link pro Gerät: Wer ihn öffnet, ist angemeldet, ohne Passwort. Ein Elternzugang öffnet alles, ein Kinder-Link nur die Kinder-App dieses Kindes. Den Link nach dem Öffnen auf dem Gerät als App installieren, dann meldet sich die App bei jedem Start selbst an. Geht ein Gerät verloren, sperrst du nur seinen Link.</p>
+
+  {{with .Access.New}}
+  <div class="new-link">
+    <p><strong>{{if .Kid}}Kinder-App für {{.Kid}} auf „{{.Label}}“{{else}}Elternzugang für „{{.Label}}“{{end}}.</strong> Der Link wird nur jetzt angezeigt.</p>
+    <div class="link-row">
+      <input class="link-field" readonly value="{{.URL}}" aria-label="Zugangslink" onclick="this.select()">
+      <button type="button" class="primary" data-url="{{.URL}}" onclick="navigator.clipboard.writeText(this.dataset.url).then(() => { this.textContent = 'Kopiert' })">Kopieren</button>
+    </div>
+    <p class="muted small">Am besten direkt auf dem Gerät öffnen, zum Beispiel per Nachricht an dich selbst, und dort installieren: auf dem iPhone in Safari <em>Teilen</em> und <em>Zum Home-Bildschirm</em>, auf Android im Chrome-Menü <em>App installieren</em>.</p>
+  </div>
+  {{end}}
+
+  <div class="access-groups">
+    <div>
+      <h3>Eltern</h3>
+      {{if .Access.Parents}}
+      <ul class="channel-list">
+        {{range .Access.Parents}}
+        <li>
+          <span><strong>{{.Label}}</strong> <span class="muted small">{{if .LastUsed.IsZero}}noch nicht benutzt{{else}}zuletzt {{datetime .LastUsed}}{{end}}</span></span>
+          <form method="post" action="/einstellungen/zugang/{{.ID}}/entfernen" onsubmit="return confirm('Zugang für {{.Label}} sperren?')"><button class="link danger-text">Sperren</button></form>
+        </li>
+        {{end}}
+      </ul>
+      {{end}}
+      <form method="post" action="/einstellungen/zugang" class="inline-form">
+        <input type="hidden" name="kind" value="parent">
+        <label>Gerät <input name="label" placeholder="z. B. iPhone Papa" required></label>
+        <button>Link erstellen</button>
+      </form>
+    </div>
+    <div>
+      <h3>Kinder</h3>
+      {{if .Access.Kids}}
+      <ul class="channel-list">
+        {{range .Access.Kids}}
+        <li>
+          <span><strong>{{.Kid}}</strong> auf {{.Label}} <span class="muted small">{{if .LastUsed.IsZero}}noch nicht benutzt{{else}}zuletzt {{datetime .LastUsed}}{{end}}</span></span>
+          <form method="post" action="/einstellungen/zugang/{{.ID}}/entfernen" onsubmit="return confirm('Kinder-App auf {{.Label}} sperren?')"><button class="link danger-text">Sperren</button></form>
+        </li>
+        {{end}}
+      </ul>
+      {{end}}
+      {{if .Profiles}}
+      <form method="post" action="/einstellungen/zugang" class="inline-form">
+        <input type="hidden" name="kind" value="kid">
+        <label>Kind
+          <select name="profile">{{range .Profiles}}<option value="{{.ID}}">{{.Name}}</option>{{end}}</select>
+        </label>
+        <label>Gerät <input name="label" placeholder="z. B. iPhone" required></label>
+        <button>Link erstellen</button>
+      </form>
+      {{else}}<p class="muted">Erst unter <a href="/regeln">Regeln</a> ein Kind anlegen.</p>{{end}}
+    </div>
+  </div>
   <div class="buttons"><a class="button" href="/protokoll">Protokoll öffnen</a></div>
 </section>
 </div>

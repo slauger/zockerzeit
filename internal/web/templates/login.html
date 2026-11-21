@@ -3,6 +3,8 @@
   <img src="/static/favicon.svg" alt="" width="56" height="56">
   <h1>Zockerzeit</h1>
   {{if .Data.Failed}}<p class="banner err">Falsches Passwort.</p>{{end}}
+  {{if .Data.Blocked}}<p class="banner err">Zu viele Fehlversuche. Bitte in einer Viertelstunde noch einmal.</p>{{end}}
+  {{if .Data.Link}}<p class="banner err">Dieser Zugangslink gilt nicht mehr. Melde dich mit dem Passwort an oder lass dir einen neuen Link erstellen.</p>{{end}}
   <form method="post" action="/login">
     <label>Passwort <input type="password" name="password" autocomplete="current-password" autofocus required></label>
     <button class="primary">Anmelden</button>

@@ -90,7 +90,7 @@ See the [chart README](charts/zockerzeit/README.md) for all values. Run a single
 3. **Einstellungen → Nintendo**: connect the account(s). The consoles show up after the first fetch.
 4. **Konsolen**: choose the kid each console belongs to.
 5. **Einstellungen → Benachrichtigungen**: add a Telegram bot or an ntfy topic and choose the events.
-6. Install the apps (see below).
+6. **Einstellungen → Zugang ohne Passwort**: create a link for each phone and tablet and install the apps (see below).
 
 ### Installing the apps
 
@@ -98,7 +98,8 @@ Both the parent UI and the kid app are installable web apps (PWA) with their own
 
 - **iPhone and iPad**: open the page in Safari, tap *Teilen* (share) and choose *Zum Home-Bildschirm*.
 - **Android**: open the page in Chrome and choose *App installieren* in the menu, or tap *Installieren* in the hint Zockerzeit shows.
-- **Parents** install `/`, **kids** install `/kind/<name>` on their own device. The kid app shows only the kid's own time, statistics and games.
+- **Without a password**: under *Einstellungen → Zugang ohne Passwort* create a secret link per device. A parent link signs the device in, a kid link opens only that kid's app. Open the link on the device and install it there; the installed app starts with its link and signs itself in. Lost a device? Revoke its link.
+- The kid app shows only the kid's own time, statistics and games.
 
 ## Limitations
 

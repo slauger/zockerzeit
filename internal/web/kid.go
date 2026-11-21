@@ -44,7 +44,7 @@ var monthNames = [...]string{"Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "
 // maxMonthBars caps the "alle" chart to the most recent months.
 const maxMonthBars = 12
 
-func (s *Server) kidStats(p store.Profile, rng string, now time.Time) kidStats {
+func (s *Server) kidStats(p store.Profile, rng string, now time.Time, base string) kidStats {
 	st := kidStats{Range: rng}
 	today := rules.StartOfDay(now)
 	from := today
@@ -60,7 +60,7 @@ func (s *Server) kidStats(p store.Profile, rng string, now time.Time) kidStats {
 	}
 	v := s.nintendoGames(p.ID, from, today)
 	st.Linked, st.Minutes = v.Linked, v.Minutes
-	prefix := "/kind/" + p.ID + "/bild/"
+	prefix := base + "/bild/"
 	for _, g := range v.Top {
 		g.ImageURI = strings.Replace(g.ImageURI, "/bild/", prefix, 1)
 		st.Games = append(st.Games, g)

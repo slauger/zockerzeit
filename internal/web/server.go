@@ -85,6 +85,7 @@ type Server struct {
 
 	loginMu sync.Mutex
 	logins  map[string]pendingLogin
+	limiter loginLimiter
 }
 
 // pendingLogin keeps the PKCE verifier of a started Nintendo login.
@@ -126,12 +127,20 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /login", s.login)
 	m.HandleFunc("POST /logout", s.logout)
 	m.HandleFunc("GET /manifest.webmanifest", s.appManifest)
-	m.HandleFunc("GET /kind/{id}", s.kidPage)
-	m.HandleFunc("GET /kind/{id}/manifest.webmanifest", s.kidManifest)
-	m.HandleFunc("GET /kind/{id}/statistik", s.kidStatsPage)
-	m.HandleFunc("GET /kind/{id}/bild/{key}", s.kidImage)
+	m.HandleFunc("GET /zugang/{token}", s.parentAccess)
+	// Kid apps: public with a kid link, by name only for parents.
+	m.HandleFunc("GET /k/{token}", s.kidPage)
+	m.HandleFunc("GET /k/{token}/manifest.webmanifest", s.kidManifest)
+	m.HandleFunc("GET /k/{token}/statistik", s.kidStatsPage)
+	m.HandleFunc("GET /k/{token}/bild/{key}", s.kidImage)
+	m.HandleFunc("GET /k/{token}/status", s.kidAPI)
+	m.HandleFunc("GET /k/sw.js", s.kidServiceWorker)
 	m.HandleFunc("GET /kind/sw.js", s.kidServiceWorker)
-	m.HandleFunc("GET /api/kind/{id}", s.kidAPI)
+	m.Handle("GET /kind/{id}", s.auth(s.kidPage))
+	m.Handle("GET /kind/{id}/manifest.webmanifest", s.auth(s.kidManifest))
+	m.Handle("GET /kind/{id}/statistik", s.auth(s.kidStatsPage))
+	m.Handle("GET /kind/{id}/bild/{key}", s.auth(s.kidImage))
+	m.Handle("GET /api/kind/{id}", s.auth(s.kidAPI))
 
 	m.Handle("GET /{$}", s.auth(s.dashboard))
 	m.Handle("GET /verlauf", s.auth(s.history))
@@ -149,6 +158,8 @@ func (s *Server) routes() {
 	m.Handle("POST /einstellungen/nintendo/verbinden", s.auth(s.nintendoConnect))
 	m.Handle("POST /einstellungen/nintendo/sync", s.auth(s.nintendoSync))
 	m.Handle("POST /einstellungen/nintendo/{id}/entfernen", s.auth(s.nintendoRemove))
+	m.Handle("POST /einstellungen/zugang", s.auth(s.addAccessLink))
+	m.Handle("POST /einstellungen/zugang/{id}/entfernen", s.auth(s.removeAccessLink))
 	m.Handle("POST /einstellungen/benachrichtigungen", s.auth(s.saveNotifyEvents))
 	m.Handle("POST /einstellungen/kanal", s.auth(s.addNotifyChannel))
 	m.Handle("POST /einstellungen/kanal/{id}/test", s.auth(s.testNotifyChannel))
@@ -167,6 +178,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	// Images only from Zockerzeit itself; covers and avatars are stored copies.
 	w.Header().Set("Content-Security-Policy", "img-src 'self' data:")
+	if secureRequest(r) {
+		w.Header().Set("Strict-Transport-Security", "max-age=31536000")
+	}
+	if !sameOrigin(r) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	s.mux.ServeHTTP(w, r)
 }
 
@@ -188,6 +206,9 @@ func (s *Server) sign(expiry int64) string {
 
 func (s *Server) validSession(r *http.Request) bool {
 	if s.opts.AdminPassword == "" {
+		return true
+	}
+	if _, ok := s.parentLink(r); ok {
 		return true
 	}
 	c, err := r.Cookie(sessionCookie)
@@ -220,47 +241,62 @@ func (s *Server) auth(next http.HandlerFunc) http.Handler {
 }
 
 func (s *Server) loginPage(w http.ResponseWriter, r *http.Request) {
-	s.render(w, r, "login", "Anmelden", map[string]any{"Failed": r.URL.Query().Has("fehler")})
+	q := r.URL.Query()
+	s.render(w, r, "login", "Anmelden", map[string]any{"Failed": q.Has("fehler"), "Link": q.Has("link"), "Blocked": q.Has("gesperrt")})
 }
 
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
+	if s.limiter.blocked(clientIP(r), time.Now()) {
+		http.Redirect(w, r, "/login?gesperrt=1", http.StatusSeeOther)
+		return
+	}
 	pw := r.FormValue("password")
 	if s.opts.AdminPassword == "" || subtle.ConstantTimeCompare([]byte(pw), []byte(s.opts.AdminPassword)) != 1 {
+		s.loginFailed(r, "Falsches Passwort")
 		time.Sleep(time.Second)
 		http.Redirect(w, r, "/login?fehler=1", http.StatusSeeOther)
 		return
 	}
 	expiry := time.Now().Add(30 * 24 * time.Hour).Unix()
 	// Secure is only set behind HTTPS so that plain HTTP on the LAN keeps working.
+	// Lax, so that links from notifications open signed in; posts from other
+	// sites are rejected by sameOrigin.
 	http.SetCookie(w, &http.Cookie{ //nolint:gosec // see above
 		Name: sessionCookie, Value: s.sign(expiry), Path: "/", HttpOnly: true,
-		SameSite: http.SameSiteStrictMode, Secure: r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
+		SameSite: http.SameSiteLaxMode, Secure: secureRequest(r),
 		Expires: time.Unix(expiry, 0),
 	})
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
-	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", MaxAge: -1, HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode})
+	for _, name := range []string{sessionCookie, accessCookie} {
+		http.SetCookie(w, &http.Cookie{Name: name, Value: "", Path: "/", MaxAge: -1, HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode})
+	}
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
 }
 
 // --- rendering ----------------------------------------------------------
 
 type page struct {
-	Title   string
-	Nav     string
-	Auth    bool
-	Version string
-	Flash   string
-	Error   string
-	Data    any
+	Title string
+	Nav   string
+	// Manifest is the address of the parent app manifest for this device.
+	Manifest string
+	Auth     bool
+	Version  string
+	Flash    string
+	Error    string
+	Data     any
 }
 
 func (s *Server) render(w http.ResponseWriter, r *http.Request, name, title string, data any) {
 	p := page{
-		Title: title, Nav: name, Auth: s.opts.AdminPassword != "",
+		Title: title, Nav: name, Auth: s.opts.AdminPassword != "", Manifest: "/manifest.webmanifest",
 		Version: s.opts.Version, Flash: r.URL.Query().Get("ok"), Error: r.URL.Query().Get("fehler"), Data: data,
+	}
+	if token, ok := s.parentLink(r); ok {
+		p.Manifest += "?zugang=" + token
 	}
 	if snap := s.engine.Snapshot(); snap.Error != "" && p.Error == "" && name != "kind" && name != "login" {
 		p.Error = "Letzte Auswertung fehlgeschlagen: " + snap.Error
@@ -360,7 +396,7 @@ func funcs(loc *time.Location) template.FuncMap {
 
 // eventLabels also names kinds that only older entries have.
 var eventLabels = map[string]string{
-	"over": "Zeit um", "parent": "Eltern", "config": "Einstellung", "error": "Fehler",
+	"over": "Zeit um", "parent": "Eltern", "config": "Einstellung", "error": "Fehler", "login": "Anmeldung",
 	"block": "gesperrt", "unblock": "entsperrt", "dryrun": "Testmodus", "online": "online", "offline": "offline", "roam": "AP-Wechsel",
 }
 

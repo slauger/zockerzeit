@@ -146,6 +146,11 @@ main > h1 + .muted { margin: -0.5rem 0 1.5rem; max-width: 70ch; }
 .banner.err { background: var(--danger-bg); color: var(--danger); }
 .banner.warn { background: var(--warn-bg); color: var(--warn); font-weight: 400; }
 
+.new-link { display: grid; gap: 0.6rem; padding: 1rem 1.1rem; border-radius: 14px; background: var(--ok-bg); }
+.link-row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.link-field { flex: 1 1 18rem; font-family: ui-monospace, monospace; font-size: 0.9rem; }
+.access-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); gap: 1.5rem 2rem; }
+.access-groups > div { display: grid; gap: 0.75rem; align-content: start; }
 .install-hint { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem 1rem; padding: 0.8rem 1.1rem; border-radius: 14px; margin-bottom: 1.25rem; background: var(--surface-2); color: var(--text); }
 .install-hint p { flex: 1 1 16rem; }
 .page-kind .install-hint { margin-bottom: 0.75rem; text-align: left; }

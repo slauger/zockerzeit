@@ -223,6 +223,16 @@ var migrations = []string{
 	DROP TABLE samples;
 	DROP TABLE devices;
 	DELETE FROM settings WHERE key IN ('dry_run', 'wlan_blocking', 'internet_blocking', 'default_blocker');`,
+	// Secret links that sign a parent device in or open a kid app.
+	`CREATE TABLE access_links (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		kind TEXT NOT NULL,
+		profile_id TEXT NOT NULL DEFAULT '',
+		label TEXT NOT NULL,
+		token_hash TEXT NOT NULL UNIQUE,
+		created INTEGER NOT NULL,
+		last_used INTEGER NOT NULL DEFAULT 0
+	);`,
 }
 
 // Open opens (and migrates) the database at path. Use ":memory:" for tests.
@@ -345,9 +355,13 @@ func (s *Store) SaveProfile(p Profile) error {
 	return err
 }
 
-// DeleteProfile removes a profile. Its consoles no longer count for anyone.
+// DeleteProfile removes a profile. Its consoles no longer count for anyone
+// and its kid app links stop working.
 func (s *Store) DeleteProfile(id string) error {
 	if _, err := s.db.Exec(`UPDATE nintendo_devices SET profile_id = '' WHERE profile_id = ?`, id); err != nil {
+		return err
+	}
+	if _, err := s.db.Exec(`DELETE FROM access_links WHERE kind = 'kid' AND profile_id = ?`, id); err != nil {
 		return err
 	}
 	_, err := s.db.Exec(`DELETE FROM profiles WHERE id = ?`, id)

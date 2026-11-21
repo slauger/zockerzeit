@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -148,7 +150,7 @@ func TestMigrationToNintendoOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	last := len(migrations) - 1
+	last := slices.IndexFunc(migrations, func(m string) bool { return strings.Contains(m, "DROP TABLE devices") })
 	stmts := append([]string{}, migrations[:last]...)
 	stmts = append(stmts,
 		fmt.Sprintf(`PRAGMA user_version = %d`, last),
@@ -219,5 +221,50 @@ func TestSettings(t *testing.T) {
 	got, _ = s.Settings()
 	if got["notify_start"] != "false" || got["notify_warn"] != "true" || len(got) != 2 {
 		t.Fatalf("settings = %v", got)
+	}
+}
+
+func TestAccessLinks(t *testing.T) {
+	s := newStore(t)
+	now := time.Unix(1_000_000, 0)
+	id, err := s.AddAccessLink(AccessLink{Kind: LinkKid, ProfileID: "max", Label: "iPad", Created: now}, "secret-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddAccessLink(AccessLink{Kind: LinkParent, Label: "iPhone", Created: now.Add(time.Second)}, "other"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddAccessLink(AccessLink{Kind: LinkParent, Label: "dup", Created: now}, "other"); err == nil {
+		t.Fatal("duplicate token accepted")
+	}
+	l, err := s.AccessLinkByToken("secret-token", now.Add(time.Hour))
+	if err != nil || l.ID != id || l.ProfileID != "max" || !l.LastUsed.Equal(now.Add(time.Hour)) {
+		t.Fatalf("link = %+v, %v", l, err)
+	}
+	// Uses within a few minutes are not written again.
+	if l, _ := s.AccessLinkByToken("secret-token", now.Add(time.Hour+time.Minute)); !l.LastUsed.Equal(now.Add(time.Hour)) {
+		t.Fatalf("last used = %v", l.LastUsed)
+	}
+	if _, err := s.AccessLinkByToken("wrong", now); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("wrong token: %v", err)
+	}
+	links, _ := s.AccessLinks()
+	if len(links) != 2 || links[0].Label != "iPhone" || links[1].LastUsed.IsZero() {
+		t.Fatalf("links = %+v", links)
+	}
+	if err := s.SaveProfile(Profile{ID: "max", Name: "Max"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteProfile("max"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AccessLinkByToken("secret-token", now); !errors.Is(err, ErrNotFound) {
+		t.Fatal("kid link survived its profile")
+	}
+	if err := s.DeleteAccessLink(links[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteAccessLink(links[0].ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("deleting twice: %v", err)
 	}
 }

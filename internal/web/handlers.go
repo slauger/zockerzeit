@@ -274,7 +274,7 @@ func slugify(name string) string {
 // eventFilters groups event kinds for the filter on the log page.
 var eventFilters = map[string][]string{
 	"zeit":   {"over"},
-	"eltern": {"parent", "config"},
+	"eltern": {"parent", "config", "login"},
 }
 
 type eventsData struct {
@@ -365,7 +365,9 @@ func atoiDefault(s string, def int) int {
 // --- kid view -----------------------------------------------------------
 
 type kidData struct {
-	View   engine.ProfileView
+	View engine.ProfileView
+	// Base is the address of this kid app: /k/<token> or /kind/<id>.
+	Base   string
 	Window string
 	// Linked is true when Nintendo consoles are known, so there are
 	// statistics to link to.
@@ -390,32 +392,32 @@ func (s *Server) kidView(id string) (engine.ProfileView, bool) {
 }
 
 func (s *Server) kidPage(w http.ResponseWriter, r *http.Request) {
-	v, ok := s.kidView(r.PathValue("id"))
+	v, base, ok := s.kidTarget(r)
 	if !ok {
 		http.NotFound(w, r)
 		return
 	}
 	consoles, _ := s.store.NintendoDevices()
-	s.render(w, r, "kind", v.Profile.Name, kidData{View: v, Window: kidWindow(v.Profile, s.engine.Now()), Linked: len(consoles) > 0})
+	s.render(w, r, "kind", v.Profile.Name, kidData{View: v, Base: base, Window: kidWindow(v.Profile, s.engine.Now()), Linked: len(consoles) > 0})
 }
 
 // kidStatsPage shows a kid its own play time and games. It lives below the
 // kid app so that it opens inside the installed app.
 func (s *Server) kidStatsPage(w http.ResponseWriter, r *http.Request) {
-	v, ok := s.kidView(r.PathValue("id"))
+	v, base, ok := s.kidTarget(r)
 	if !ok {
 		http.NotFound(w, r)
 		return
 	}
 	s.render(w, r, "kind", v.Profile.Name, kidData{
-		View: v, StatsPage: true, Ranges: kidRanges,
-		Stats: s.kidStats(v.Profile, r.URL.Query().Get("zeitraum"), s.engine.Now()),
+		View: v, Base: base, StatsPage: true, Ranges: kidRanges,
+		Stats: s.kidStats(v.Profile, r.URL.Query().Get("zeitraum"), s.engine.Now(), base),
 	})
 }
 
 // kidImage serves covers to the kid app, which has no parent session.
 func (s *Server) kidImage(w http.ResponseWriter, r *http.Request) {
-	if _, err := s.store.Profile(r.PathValue("id")); err != nil {
+	if _, _, ok := s.kidTarget(r); !ok {
 		http.NotFound(w, r)
 		return
 	}
@@ -423,7 +425,7 @@ func (s *Server) kidImage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) kidAPI(w http.ResponseWriter, r *http.Request) {
-	v, ok := s.kidView(r.PathValue("id"))
+	v, _, ok := s.kidTarget(r)
 	if !ok {
 		http.NotFound(w, r)
 		return
@@ -439,23 +441,24 @@ func (s *Server) kidAPI(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// kidManifest makes the kid view installable as an app of its own per kid.
+// kidManifest makes the kid app installable as an app of its own per kid
+// and link.
 func (s *Server) kidManifest(w http.ResponseWriter, r *http.Request) {
-	p, err := s.store.Profile(r.PathValue("id"))
-	if err != nil {
+	v, base, ok := s.kidTarget(r)
+	if !ok {
 		http.NotFound(w, r)
 		return
 	}
-	start := "/kind/" + p.ID
+	name := v.Profile.Name
 	w.Header().Set("Content-Type", "application/manifest+json")
 	writeJSONBody(w, map[string]any{
-		"id":               start,
-		"name":             "Zockerzeit " + p.Name,
+		"id":               base,
+		"name":             "Zockerzeit " + name,
 		"short_name":       "Zockerzeit",
-		"description":      "Wie viel Zockerzeit " + p.Name + " heute noch hat",
+		"description":      "Wie viel Zockerzeit " + name + " heute noch hat",
 		"lang":             "de",
-		"start_url":        start,
-		"scope":            start,
+		"start_url":        base,
+		"scope":            base,
 		"display":          "standalone",
 		"orientation":      "portrait",
 		"background_color": "#17152b",
@@ -464,8 +467,16 @@ func (s *Server) kidManifest(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// appManifest makes the parent UI installable as an app.
-func (s *Server) appManifest(w http.ResponseWriter, _ *http.Request) {
+// appManifest makes the parent UI installable as an app. A device signed in
+// with a link gets the link as start address, so the installed app signs
+// itself in, even with its own cookie storage (iOS).
+func (s *Server) appManifest(w http.ResponseWriter, r *http.Request) {
+	start := "/"
+	if token := r.URL.Query().Get("zugang"); token != "" {
+		if l, err := s.store.AccessLinkByToken(token, s.engine.Now()); err == nil && l.Kind == store.LinkParent {
+			start = "/zugang/" + token
+		}
+	}
 	w.Header().Set("Content-Type", "application/manifest+json")
 	writeJSONBody(w, map[string]any{
 		"id":               "/",
@@ -473,7 +484,7 @@ func (s *Server) appManifest(w http.ResponseWriter, _ *http.Request) {
 		"short_name":       "Zockerzeit",
 		"description":      "Spielzeit der Kinder auf der Nintendo Switch",
 		"lang":             "de",
-		"start_url":        "/",
+		"start_url":        start,
 		"scope":            "/",
 		"display":          "standalone",
 		"background_color": "#f3f2f8",
@@ -488,8 +499,8 @@ var appIcons = []map[string]string{
 	{"src": "/static/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
 }
 
-// kidServiceWorker serves the service worker from /kind/ so it may control
-// all kid apps.
+// kidServiceWorker serves the service worker from /k/ and /kind/ so it may
+// control all kid apps below.
 func (s *Server) kidServiceWorker(w http.ResponseWriter, r *http.Request) {
 	b, err := staticFS.ReadFile("static/kid-sw.js")
 	if err != nil {
@@ -505,13 +516,20 @@ func (s *Server) kidServiceWorker(w http.ResponseWriter, r *http.Request) {
 
 type settingsData struct {
 	Profiles         []store.Profile
+	Access           accessData
 	Nintendo         bool
 	NintendoAccounts []store.NintendoAccount
 	Notify           *notifyData
 }
 
 func (s *Server) settingsPage(w http.ResponseWriter, r *http.Request) {
-	data := settingsData{Nintendo: s.opts.Nintendo != nil, Notify: s.notifyData()}
+	s.settingsWith(w, r, nil)
+}
+
+// settingsWith renders the settings, with a link that was just created.
+func (s *Server) settingsWith(w http.ResponseWriter, r *http.Request, created *newLink) {
+	data := settingsData{Nintendo: s.opts.Nintendo != nil, Notify: s.notifyData(), Access: s.accessData()}
+	data.Access.New = created
 	data.Profiles, _ = s.store.Profiles()
 	if data.Nintendo {
 		accounts, err := s.store.NintendoAccounts()

@@ -10,6 +10,7 @@ import (
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -98,7 +99,7 @@ func TestPagesRender(t *testing.T) {
 		"/regeln":                        "Neues Profil",
 		"/protokoll":                     "Protokoll",
 		"/protokoll?art=zeit":            "Zeit um",
-		"/einstellungen":                 `href="/kind/max"`,
+		"/einstellungen":                 "Zugang ohne Passwort",
 		"/kind/max":                      "Hallo Max!",
 		"/kind/max/manifest.webmanifest": `"start_url":"/kind/max"`,
 		"/kind/sw.js":                    "zockerzeit-kid-v2",
@@ -139,9 +140,9 @@ func TestAuth(t *testing.T) {
 	if code, _ := e.get("/api/status"); code != http.StatusUnauthorized {
 		t.Fatalf("api without session: %d", code)
 	}
-	// The kid view stays public.
-	if code, _ := e.get("/kind/max"); code != http.StatusOK {
-		t.Fatalf("kid view: %d", code)
+	// Kid apps by name are for parents only.
+	if code, _ := e.get("/kind/max"); code != http.StatusSeeOther {
+		t.Fatalf("kid view by name: %d", code)
 	}
 
 	resp, err = e.client.PostForm(e.srv.URL+"/login", url.Values{"password": {"geheim"}})
@@ -705,28 +706,31 @@ func TestNintendoDisabled(t *testing.T) {
 
 func TestKidStats(t *testing.T) {
 	e := newEnv(t, "pw")
-	if _, body := e.get("/kind/max"); strings.Contains(body, "Meine Statistik") {
+	if _, err := e.store.AddAccessLink(store.AccessLink{Kind: store.LinkKid, ProfileID: "max", Label: "iPad", Created: time.Now()}, "kidtoken"); err != nil {
+		t.Fatal(err)
+	}
+	if _, body := e.get("/k/kidtoken"); strings.Contains(body, "Meine Statistik") || !strings.Contains(body, "Hallo Max!") {
 		t.Fatal("stats link without Nintendo")
 	}
 	now := time.Now().In(berlin)
 	if err := demo.SeedNintendo(e.store, now); err != nil {
 		t.Fatal(err)
 	}
-	if _, body := e.get("/kind/max"); !strings.Contains(body, `href="/kind/max/statistik"`) || strings.Contains(body, "So viel hast du gezockt") {
+	if _, body := e.get("/k/kidtoken"); !strings.Contains(body, `href="/k/kidtoken/statistik"`) || !strings.Contains(body, `href="/k/kidtoken/manifest.webmanifest"`) || strings.Contains(body, "So viel hast du gezockt") {
 		t.Fatal("the main page links to the statistics instead of showing them")
 	}
-	if code, _ := e.get("/kind/niemand/statistik"); code != http.StatusNotFound {
+	if code, _ := e.get("/k/falsch/statistik"); code != http.StatusNotFound {
 		t.Fatalf("statistics of an unknown kid: %d", code)
 	}
 	cases := map[string][]string{
-		"":                  {"So viel hast du gezockt", `href="/kind/max"`, `href="?zeitraum=heute" aria-current="page"`, "Inselabenteuer"},
+		"":                  {"So viel hast du gezockt", `href="/k/kidtoken"`, `href="?zeitraum=heute" aria-current="page"`, "Inselabenteuer"},
 		"?zeitraum=7":       {`href="?zeitraum=7" aria-current="page"`, "Pro Tag", "kid-bar", "kid-limit", "zuletzt heute"},
 		"?zeitraum=30":      {`href="?zeitraum=30" aria-current="page"`, "is-dense"},
 		"?zeitraum=alle":    {`href="?zeitraum=alle" aria-current="page"`, "Woche ab"},
 		"?zeitraum=quatsch": {`href="?zeitraum=heute" aria-current="page"`},
 	}
 	for q, wants := range cases {
-		code, body := e.get("/kind/max/statistik" + q)
+		code, body := e.get("/k/kidtoken/statistik" + q)
 		if code != http.StatusOK {
 			t.Fatalf("%s: %d", q, code)
 		}
@@ -742,7 +746,7 @@ func TestKidStats(t *testing.T) {
 	_ = e.store.UpsertNintendoUsage(store.NintendoUsage{Date: old, DeviceID: "demo-switch-1", PlayerID: "demo-max", Minutes: 30,
 		Games: []store.NintendoGame{{ApplicationID: "0100DEMO0001", Minutes: 30}}})
 	_ = e.store.AddNintendoPlay([]store.NintendoPlay{{Date: old, DeviceID: "demo-switch-1", PlayerID: "demo-max", ProfileID: "max", Minutes: 30, TS: now}})
-	_, body := e.get("/kind/max/statistik?zeitraum=alle")
+	_, body := e.get("/k/kidtoken/statistik?zeitraum=alle")
 	if got := strings.Count(body, `class="kid-bar`); got != maxMonthBars || !strings.Contains(body, monthNames[now.Month()-1]+" ") {
 		t.Fatalf("month bars: %d", got)
 	}
@@ -753,10 +757,16 @@ func TestKidStats(t *testing.T) {
 		t.Fatal(err)
 	}
 	key := store.ImageKey(src)
-	if code, body := e.get("/kind/max/bild/" + key); code != http.StatusOK || body != "png" {
+	if code, body := e.get("/k/kidtoken/bild/" + key); code != http.StatusOK || body != "png" {
 		t.Fatalf("kid image: %d", code)
 	}
-	if code, _ := e.get("/kind/niemand/bild/" + key); code != http.StatusNotFound {
+	if _, body := e.get("/k/kidtoken/manifest.webmanifest"); !strings.Contains(body, `"start_url":"/k/kidtoken"`) {
+		t.Fatalf("kid manifest: %s", body)
+	}
+	if code, body := e.get("/k/kidtoken/status"); code != http.StatusOK || !strings.Contains(body, `"name":"Max"`) {
+		t.Fatalf("kid status: %d %s", code, body)
+	}
+	if code, _ := e.get("/k/falsch/bild/" + key); code != http.StatusNotFound {
 		t.Fatalf("kid image of unknown kid: %d", code)
 	}
 	if _, body := e.get("/bild/" + key); body == "png" {
@@ -772,5 +782,133 @@ func TestKidWindow(t *testing.T) {
 	}
 	if got := kidWindow(p, now.AddDate(0, 0, 1)); got != "" {
 		t.Fatalf("no window %q", got)
+	}
+}
+
+func TestAccessLinks(t *testing.T) {
+	e := newEnv(t, "geheim")
+	e.client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	login := func(pw string) string {
+		t.Helper()
+		resp, err := e.client.PostForm(e.srv.URL+"/login", url.Values{"password": {pw}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		return resp.Header.Get("Location")
+	}
+	if loc := login("geheim"); loc != "/" {
+		t.Fatalf("login: %s", loc)
+	}
+	e.client.CheckRedirect = nil
+
+	// A parent link for a phone, shown once.
+	_, body := e.post("/einstellungen/zugang", url.Values{"kind": {"parent"}, "label": {"iPhone Papa"}})
+	m := regexp.MustCompile(`value="(http://[^"]+/zugang/([A-Za-z0-9_-]+))"`).FindStringSubmatch(body)
+	if m == nil || !strings.Contains(body, "Elternzugang für „iPhone Papa“") {
+		t.Fatal("new parent link not shown")
+	}
+	parentToken := m[2]
+	_, body = e.post("/einstellungen/zugang", url.Values{"kind": {"kid"}, "profile": {"mia"}, "label": {"Tablet"}})
+	k := regexp.MustCompile(`value="http://[^"]+/k/([A-Za-z0-9_-]+)"`).FindStringSubmatch(body)
+	if k == nil || !strings.Contains(body, "Kinder-App für Mia auf „Tablet“") {
+		t.Fatal("new kid link not shown")
+	}
+	if _, body := e.get("/k/" + k[1]); !strings.Contains(body, "Hallo Mia!") {
+		t.Fatal("kid link does not open the kid app")
+	}
+	for _, bad := range []url.Values{
+		{"kind": {"parent"}},
+		{"kind": {"kid"}, "profile": {"niemand"}, "label": {"x"}},
+		{"kind": {"admin"}, "label": {"x"}},
+	} {
+		if _, body := e.post("/einstellungen/zugang", bad); !strings.Contains(body, "banner err") {
+			t.Errorf("expected error for %v", bad)
+		}
+	}
+
+	// A new device with only the link is signed in, also after a restart.
+	jar, _ := cookiejar.New(nil)
+	phone := &env{t: t, store: e.store, srv: e.srv, client: &http.Client{Jar: jar}}
+	if code, body := phone.get("/zugang/" + parentToken); code != http.StatusOK || !strings.Contains(body, "Mehr Zeit für heute") {
+		t.Fatalf("link sign in: %d", code)
+	}
+	if _, body := phone.get("/"); !strings.Contains(body, "/manifest.webmanifest?zugang="+parentToken) {
+		t.Fatal("the installed app would not start with its link")
+	}
+	if _, body := phone.get("/manifest.webmanifest?zugang=" + parentToken); !strings.Contains(body, `"start_url":"/zugang/`+parentToken+`"`) {
+		t.Fatalf("manifest: %s", body)
+	}
+	if _, body := phone.get("/manifest.webmanifest?zugang=falsch"); !strings.Contains(body, `"start_url":"/"`) {
+		t.Fatalf("manifest with a wrong token: %s", body)
+	}
+	if _, body := e.get("/einstellungen"); !strings.Contains(body, "iPhone Papa") || !strings.Contains(body, "zuletzt") {
+		t.Fatal("link list missing")
+	}
+
+	// Revoking ends the access right away.
+	links, _ := e.store.AccessLinks()
+	for _, l := range links {
+		if _, body := e.post("/einstellungen/zugang/"+strconv.FormatInt(l.ID, 10)+"/entfernen", nil); !strings.Contains(body, "gesperrt") {
+			t.Fatal("revoking failed")
+		}
+	}
+	if _, body := e.post("/einstellungen/zugang/abc/entfernen", nil); !strings.Contains(body, "nicht gefunden") {
+		t.Fatal("bad id accepted")
+	}
+	if _, body := phone.get("/"); !strings.Contains(body, "Passwort") {
+		t.Fatal("revoked link still signed in")
+	}
+	if _, body := phone.get("/zugang/" + parentToken); !strings.Contains(body, "gilt nicht mehr") {
+		t.Fatal("revoked link not reported")
+	}
+	if code, _ := phone.get("/k/" + k[1]); code != http.StatusNotFound {
+		t.Fatal("revoked kid link still works")
+	}
+
+	// Posts from other sites are refused.
+	req, _ := http.NewRequest(http.MethodPost, e.srv.URL+"/aktion", strings.NewReader("action=bonus&profile=max&minutes=60"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Origin", "https://evil.example")
+	resp, err := e.client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("cross site post: %d", resp.StatusCode)
+	}
+
+	// Logging out drops both cookies.
+	if _, body := phone.post("/logout", nil); !strings.Contains(body, "Passwort") {
+		t.Fatal("logout")
+	}
+}
+
+func TestLoginThrottle(t *testing.T) {
+	e := newEnv(t, "geheim")
+	e.client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	s := e.srv.Config.Handler.(*Server)
+	for range loginMaxFails {
+		s.limiter.fail("127.0.0.1", time.Now())
+	}
+	resp, err := e.client.PostForm(e.srv.URL+"/login", url.Values{"password": {"geheim"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if loc := resp.Header.Get("Location"); loc != "/login?gesperrt=1" {
+		t.Fatalf("not throttled: %s", loc)
+	}
+	if _, body := e.get("/login?gesperrt=1"); !strings.Contains(body, "Zu viele Fehlversuche") {
+		t.Fatal("throttle message missing")
+	}
+	if s.limiter.blocked("127.0.0.1", time.Now().Add(loginWindow)) {
+		t.Fatal("block does not expire")
+	}
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.Header.Set("X-Forwarded-For", "1.2.3.4, 10.0.0.9")
+	if clientIP(r) != "10.0.0.9" {
+		t.Fatalf("client ip = %s", clientIP(r))
 	}
 }

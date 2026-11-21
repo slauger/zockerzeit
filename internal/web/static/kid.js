@@ -5,7 +5,9 @@
   if (!root) return;
 
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("/kind/sw.js", { scope: "/kind/" }).catch(() => {});
+    // Kid apps live below /k/ (link) or /kind/ (parent preview).
+    const scope = "/" + location.pathname.split("/")[1] + "/";
+    navigator.serviceWorker.register(scope + "sw.js", { scope }).catch(() => {});
   }
 
   const stamp = document.getElementById("kid-stamp");

@@ -1,6 +1,6 @@
 {{define "head"}}
-{{with .Data.View}}
-<link rel="manifest" href="/kind/{{.Profile.ID}}/manifest.webmanifest">
+{{with .Data}}
+<link rel="manifest" href="{{.Base}}/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
 <meta name="theme-color" content="#17152b">
 <meta name="mobile-web-app-capable" content="yes">
@@ -40,11 +40,11 @@
   <ul class="kid-facts">
     <li>{{if .Window}}Heute {{.Window}} Uhr{{else}}Heute keine Zockzeit{{end}}</li>
   </ul>
-  {{if .Linked}}<a class="kid-statslink" href="/kind/{{$v.Profile.ID}}/statistik">Meine Statistik</a>{{end}}
+  {{if .Linked}}<a class="kid-statslink" href="{{.Base}}/statistik">Meine Statistik</a>{{end}}
 </section>
 {{else}}
 <header class="kid-head kid-subhead">
-  <a class="kid-back" href="/kind/{{$v.Profile.ID}}" aria-label="Zurück zur Zockerzeit">&larr;</a>
+  <a class="kid-back" href="{{.Base}}" aria-label="Zurück zur Zockerzeit">&larr;</a>
   <h1>So viel hast du gezockt</h1>
 </header>
 {{with .Stats}}
