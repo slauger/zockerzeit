@@ -123,7 +123,7 @@ code { font-size: 0.9em; background: var(--surface-2); padding: 0.05em 0.35em; b
 }
 .brand { display: flex; align-items: center; gap: 0.6rem; color: var(--text); text-decoration: none; font-family: var(--font-display); font-weight: 800; font-size: 1.35rem; letter-spacing: -0.03em; }
 .brand img { width: 36px; height: 36px; }
-.topbar nav { display: flex; gap: 1.5rem; flex: 1; overflow-x: auto; scrollbar-width: none; }
+.topbar nav { display: flex; flex-wrap: wrap; gap: 0 1.5rem; flex: 1; }
 .topbar nav a { position: relative; padding: 0.5rem 0; color: var(--text-muted); text-decoration: none; font-weight: 700; white-space: nowrap; }
 .topbar nav a:hover { color: var(--text); }
 .topbar nav a[aria-current="page"] { color: var(--text); }
