@@ -14,6 +14,7 @@
 {{with .Data}}
 {{$v := .View}}
 <div class="kid-app" data-kid>
+{{if not .StatsPage}}
 <section class="kid {{if $v.Status.Allowed}}is-allowed{{else}}is-paused{{end}}">
   <header class="kid-head">
     <img class="kid-logo" src="/static/favicon.svg" alt="" width="44" height="44">
@@ -39,14 +40,18 @@
   <ul class="kid-facts">
     <li>{{if .Window}}Heute {{.Window}} Uhr{{else}}Heute keine Zockzeit{{end}}</li>
   </ul>
+  {{if .Linked}}<a class="kid-statslink" href="/kind/{{$v.Profile.ID}}/statistik">Meine Statistik</a>{{end}}
 </section>
-
-{{with .Stats}}{{if .Linked}}
-<section class="kid-stats" id="statistik">
-  <h2>So viel hast du gezockt</h2>
+{{else}}
+<header class="kid-head kid-subhead">
+  <a class="kid-back" href="/kind/{{$v.Profile.ID}}" aria-label="Zurück zur Zockerzeit">&larr;</a>
+  <h1>So viel hast du gezockt</h1>
+</header>
+{{with .Stats}}
+<section class="kid-stats">
   <nav class="kid-tabs" aria-label="Zeitraum">
     {{$cur := .Range}}
-    {{range $.Data.Ranges}}<a href="?zeitraum={{.Value}}#statistik" {{if eq .Value $cur}}aria-current="page"{{end}}>{{.Label}}</a>{{end}}
+    {{range $.Data.Ranges}}<a href="?zeitraum={{.Value}}" {{if eq .Value $cur}}aria-current="page"{{end}}>{{.Label}}</a>{{end}}
   </nav>
 
   <dl class="kid-numbers">
@@ -81,7 +86,8 @@
   <p class="kid-empty">{{if eq .Range "heute"}}Heute hast du noch nicht gezockt.{{else}}In dieser Zeit hast du nicht gezockt.{{end}}</p>
   {{end}}
 </section>
-{{end}}{{end}}
+{{end}}
+{{end}}
 </div>
 <p class="kid-stamp" id="kid-stamp"></p>
 {{end}}

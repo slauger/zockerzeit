@@ -703,22 +703,28 @@ func TestNintendoDisabled(t *testing.T) {
 
 func TestKidStats(t *testing.T) {
 	e := newEnv(t, "pw")
-	if _, body := e.get("/kind/max"); strings.Contains(body, "So viel hast du gezockt") {
-		t.Fatal("stats without Nintendo")
+	if _, body := e.get("/kind/max"); strings.Contains(body, "Meine Statistik") {
+		t.Fatal("stats link without Nintendo")
 	}
 	now := time.Now().In(berlin)
 	if err := demo.SeedNintendo(e.store, now); err != nil {
 		t.Fatal(err)
 	}
+	if _, body := e.get("/kind/max"); !strings.Contains(body, `href="/kind/max/statistik"`) || strings.Contains(body, "So viel hast du gezockt") {
+		t.Fatal("the main page links to the statistics instead of showing them")
+	}
+	if code, _ := e.get("/kind/niemand/statistik"); code != http.StatusNotFound {
+		t.Fatalf("statistics of an unknown kid: %d", code)
+	}
 	cases := map[string][]string{
-		"":                  {"So viel hast du gezockt", `href="?zeitraum=heute#statistik" aria-current="page"`, "Inselabenteuer"},
-		"?zeitraum=7":       {`href="?zeitraum=7#statistik" aria-current="page"`, "Pro Tag", "kid-bar", "kid-limit", "zuletzt heute"},
-		"?zeitraum=30":      {`href="?zeitraum=30#statistik" aria-current="page"`, "is-dense"},
-		"?zeitraum=alle":    {`href="?zeitraum=alle#statistik" aria-current="page"`, "Woche ab"},
-		"?zeitraum=quatsch": {`href="?zeitraum=heute#statistik" aria-current="page"`},
+		"":                  {"So viel hast du gezockt", `href="/kind/max"`, `href="?zeitraum=heute" aria-current="page"`, "Inselabenteuer"},
+		"?zeitraum=7":       {`href="?zeitraum=7" aria-current="page"`, "Pro Tag", "kid-bar", "kid-limit", "zuletzt heute"},
+		"?zeitraum=30":      {`href="?zeitraum=30" aria-current="page"`, "is-dense"},
+		"?zeitraum=alle":    {`href="?zeitraum=alle" aria-current="page"`, "Woche ab"},
+		"?zeitraum=quatsch": {`href="?zeitraum=heute" aria-current="page"`},
 	}
 	for q, wants := range cases {
-		code, body := e.get("/kind/max" + q)
+		code, body := e.get("/kind/max/statistik" + q)
 		if code != http.StatusOK {
 			t.Fatalf("%s: %d", q, code)
 		}
@@ -734,7 +740,7 @@ func TestKidStats(t *testing.T) {
 	_ = e.store.UpsertNintendoUsage(store.NintendoUsage{Date: old, DeviceID: "demo-switch-1", PlayerID: "demo-max", Minutes: 30,
 		Games: []store.NintendoGame{{ApplicationID: "0100DEMO0001", Minutes: 30}}})
 	_ = e.store.AddNintendoPlay([]store.NintendoPlay{{Date: old, DeviceID: "demo-switch-1", PlayerID: "demo-max", ProfileID: "max", Minutes: 30, TS: now}})
-	_, body := e.get("/kind/max?zeitraum=alle")
+	_, body := e.get("/kind/max/statistik?zeitraum=alle")
 	if got := strings.Count(body, `class="kid-bar`); got != maxMonthBars || !strings.Contains(body, monthNames[now.Month()-1]+" ") {
 		t.Fatalf("month bars: %d", got)
 	}

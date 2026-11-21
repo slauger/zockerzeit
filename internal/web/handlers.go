@@ -367,8 +367,13 @@ func atoiDefault(s string, def int) int {
 type kidData struct {
 	View   engine.ProfileView
 	Window string
-	Stats  kidStats
-	Ranges []struct{ Value, Label string }
+	// Linked is true when Nintendo consoles are known, so there are
+	// statistics to link to.
+	Linked bool
+	// StatsPage renders the statistics instead of the remaining time.
+	StatsPage bool
+	Stats     kidStats
+	Ranges    []struct{ Value, Label string }
 }
 
 func (s *Server) kidView(id string) (engine.ProfileView, bool) {
@@ -390,10 +395,21 @@ func (s *Server) kidPage(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	now := s.engine.Now()
+	consoles, _ := s.store.NintendoDevices()
+	s.render(w, r, "kind", v.Profile.Name, kidData{View: v, Window: kidWindow(v.Profile, s.engine.Now()), Linked: len(consoles) > 0})
+}
+
+// kidStatsPage shows a kid its own play time and games. It lives below the
+// kid app so that it opens inside the installed app.
+func (s *Server) kidStatsPage(w http.ResponseWriter, r *http.Request) {
+	v, ok := s.kidView(r.PathValue("id"))
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
 	s.render(w, r, "kind", v.Profile.Name, kidData{
-		View: v, Window: kidWindow(v.Profile, now), Ranges: kidRanges,
-		Stats: s.kidStats(v.Profile, r.URL.Query().Get("zeitraum"), now),
+		View: v, StatsPage: true, Ranges: kidRanges,
+		Stats: s.kidStats(v.Profile, r.URL.Query().Get("zeitraum"), s.engine.Now()),
 	})
 }
 
