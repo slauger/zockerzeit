@@ -893,17 +893,28 @@ func TestAccessLinks(t *testing.T) {
 		t.Fatal("revoked kid link still works")
 	}
 
-	// Posts from other sites are refused.
-	req, _ := http.NewRequest(http.MethodPost, e.srv.URL+"/aktion", strings.NewReader("action=bonus&profile=max&minutes=60"))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Origin", "https://evil.example")
-	resp, err := e.client.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = resp.Body.Close()
-	if resp.StatusCode != http.StatusForbidden {
-		t.Fatalf("cross site post: %d", resp.StatusCode)
+	// Posts from other sites are refused, own forms (Origin null because of
+	// no-referrer) pass.
+	for _, c := range []struct {
+		header, value string
+		want          int
+	}{
+		{"Origin", "https://evil.example", http.StatusForbidden},
+		{"Sec-Fetch-Site", "cross-site", http.StatusForbidden},
+		{"Sec-Fetch-Site", "same-origin", http.StatusOK},
+		{"Origin", "null", http.StatusOK},
+	} {
+		req, _ := http.NewRequest(http.MethodPost, e.srv.URL+"/aktion", strings.NewReader("action=bonus&profile=max&minutes=5"))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set(c.header, c.value)
+		resp, err := e.client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode != c.want {
+			t.Fatalf("%s %s: %d", c.header, c.value, resp.StatusCode)
+		}
 	}
 
 	// Logging out drops both cookies.

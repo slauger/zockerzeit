@@ -147,11 +147,19 @@ func (s *Server) loginFailed(r *http.Request, what string) {
 	_ = s.store.AddEvent(store.Event{TS: s.engine.Now(), Kind: "login", Message: what + " von " + ip})
 }
 
-// sameOrigin rejects form posts from other sites. Browsers send Origin with
-// every POST; requests without it (scripts, tests) are let through.
+// sameOrigin rejects form posts from other sites. Browsers mark every
+// request with Sec-Fetch-Site; older ones send Origin, which is "null"
+// here because pages use no-referrer. Requests with neither (scripts,
+// tests) are let through, the session cookie is SameSite=Lax anyway.
 func sameOrigin(r *http.Request) bool {
+	if r.Method == http.MethodGet || r.Method == http.MethodHead {
+		return true
+	}
+	if site := r.Header.Get("Sec-Fetch-Site"); site != "" {
+		return site == "same-origin" || site == "none"
+	}
 	origin := r.Header.Get("Origin")
-	if origin == "" || r.Method == http.MethodGet || r.Method == http.MethodHead {
+	if origin == "" || origin == "null" {
 		return true
 	}
 	u, err := url.Parse(origin)
