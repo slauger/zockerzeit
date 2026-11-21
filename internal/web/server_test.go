@@ -79,7 +79,7 @@ func TestPagesRender(t *testing.T) {
 	for path, want := range map[string]string{
 		"/":                              "Mehr Zeit",
 		"/geraet/98:b6:e9:00:00:01":      "Für Mia freigeben",
-		"/verlauf":                       "Spielzeit pro Tag",
+		"/verlauf":                       "Im WLAN pro Tag",
 		"/regeln":                        "Neues Profil",
 		"/geraete":                       "Switch Kinderzimmer",
 		"/protokoll":                     "Protokoll",
@@ -308,14 +308,14 @@ func TestProfilesAndDevices(t *testing.T) {
 		}
 	}
 
-	dev := url.Values{"mac": {"AA-BB-CC-DD-EE-FF"}, "name": {"Switch Oma"}, "profile": {"grosser-bruder"}, "mode": {"online"}, "shared": {"on"}, "blocker": {"internet"}}
+	dev := url.Values{"mac": {"AA-BB-CC-DD-EE-FF"}, "name": {"Switch Oma"}, "profile": {"grosser-bruder"}, "mode": {"online"}, "shared": {"on"}, "blocker": {"internet"}, "schedule_block": {"on"}}
 	if _, body := e.post("/geraete", dev); !strings.Contains(body, "gespeichert") {
 		t.Fatal("saving device failed")
 	}
 	devs, _ := e.store.Devices()
 	found := false
 	for _, d := range devs {
-		if d.MAC == "aa:bb:cc:dd:ee:ff" && d.Shared && d.ProfileID == "grosser-bruder" && d.Blocker == store.BlockInternet {
+		if d.MAC == "aa:bb:cc:dd:ee:ff" && d.Shared && d.ProfileID == "grosser-bruder" && d.Blocker == store.BlockInternet && d.ScheduleBlock {
 			found = true
 		}
 	}
@@ -358,7 +358,7 @@ func TestStatsAndKidAPI(t *testing.T) {
 	if err := json.Unmarshal([]byte(body), &st); err != nil {
 		t.Fatal(err)
 	}
-	if st.Limit != 90 || len(st.Daily.Labels) != 7 || len(st.Devices) == 0 || len(st.Locations) == 0 {
+	if st.Limit != 0 || len(st.Daily.Labels) != 7 || len(st.Devices) == 0 || len(st.Locations) == 0 {
 		t.Fatalf("unexpected stats: limit=%d labels=%d devices=%d", st.Limit, len(st.Daily.Labels), len(st.Devices))
 	}
 	_, body = e.get("/api/stats?profile=max&days=7&type=phone")

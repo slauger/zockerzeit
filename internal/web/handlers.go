@@ -450,6 +450,8 @@ func (s *Server) saveDevice(w http.ResponseWriter, r *http.Request) {
 		Shared:    r.FormValue("shared") == "on",
 		Mode:      modeForType(r.FormValue("type"), r.FormValue("mode")),
 		Blocker:   r.FormValue("blocker"),
+
+		ScheduleBlock: r.FormValue("schedule_block") == "on",
 	}
 	if !validMAC(d.MAC) {
 		redirectErr(w, r, "/geraete", fmt.Errorf("ungültige MAC-Adresse %q", d.MAC))
@@ -595,10 +597,11 @@ func (s *Server) statsAPI(w http.ResponseWriter, r *http.Request) {
 		names[d.MAC] = d.Name
 	}
 	// Without a type filter console and phone time are mixed, so there is no
-	// single limit to draw.
+	// single limit to draw. Console limits apply to Nintendo play time, not
+	// to the WLAN time shown here.
 	deviceType := r.URL.Query().Get("type")
 	limit := 0
-	if p, err := s.store.Profile(profileID); err == nil && (deviceType == store.TypeConsole || deviceType == store.TypePhone) {
+	if p, err := s.store.Profile(profileID); err == nil && deviceType == store.TypePhone {
 		limit = p.Rules(deviceType).DailyMinutes
 	}
 

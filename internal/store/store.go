@@ -91,6 +91,9 @@ type Device struct {
 	Shared    bool   `json:"shared"`
 	Mode      string `json:"mode"`
 	Blocker   string `json:"blocker"`
+	// ScheduleBlock blocks the device outside the time windows of its
+	// profile. Play time limits never block.
+	ScheduleBlock bool `json:"scheduleBlock"`
 }
 
 // Type returns the device type. Phones are tracked by traffic, everything
@@ -246,6 +249,8 @@ var migrations = []string{
 		data BLOB NOT NULL,
 		fetched INTEGER NOT NULL
 	);`,
+	// Blocking follows the time windows only where a parent switched it on.
+	`ALTER TABLE devices ADD COLUMN schedule_block INTEGER NOT NULL DEFAULT 0;`,
 }
 
 // Open opens (and migrates) the database at path. Use ":memory:" for tests.
@@ -389,7 +394,7 @@ func (s *Store) DeleteProfile(id string) error {
 
 // Devices returns all managed devices ordered by name.
 func (s *Store) Devices() ([]Device, error) {
-	rows, err := s.db.Query(`SELECT mac, name, profile_id, shared, mode, blocker FROM devices ORDER BY name COLLATE NOCASE`)
+	rows, err := s.db.Query(`SELECT mac, name, profile_id, shared, mode, blocker, schedule_block FROM devices ORDER BY name COLLATE NOCASE`)
 	if err != nil {
 		return nil, err
 	}
@@ -397,7 +402,7 @@ func (s *Store) Devices() ([]Device, error) {
 	var out []Device
 	for rows.Next() {
 		var d Device
-		if err := rows.Scan(&d.MAC, &d.Name, &d.ProfileID, &d.Shared, &d.Mode, &d.Blocker); err != nil {
+		if err := rows.Scan(&d.MAC, &d.Name, &d.ProfileID, &d.Shared, &d.Mode, &d.Blocker, &d.ScheduleBlock); err != nil {
 			return nil, err
 		}
 		out = append(out, d)
@@ -413,10 +418,10 @@ func (s *Store) SaveDevice(d Device) error {
 	if d.Blocker != BlockInternet {
 		d.Blocker = BlockWLAN
 	}
-	_, err := s.db.Exec(`INSERT INTO devices (mac, name, profile_id, shared, mode, blocker) VALUES (?, ?, ?, ?, ?, ?)
+	_, err := s.db.Exec(`INSERT INTO devices (mac, name, profile_id, shared, mode, blocker, schedule_block) VALUES (?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(mac) DO UPDATE SET name = excluded.name, profile_id = excluded.profile_id,
-		shared = excluded.shared, mode = excluded.mode, blocker = excluded.blocker`,
-		d.MAC, d.Name, d.ProfileID, d.Shared, d.Mode, d.Blocker)
+		shared = excluded.shared, mode = excluded.mode, blocker = excluded.blocker, schedule_block = excluded.schedule_block`,
+		d.MAC, d.Name, d.ProfileID, d.Shared, d.Mode, d.Blocker, d.ScheduleBlock)
 	return err
 }
 

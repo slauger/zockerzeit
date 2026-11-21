@@ -121,8 +121,8 @@ func newHarness(t *testing.T, dryRun bool) *harness {
 		Phone:   store.RuleSet{DailyMinutes: 60, Schedule: sched},
 	}))
 	must(t, st.SaveProfile(store.Profile{ID: "mia", Name: "Mia", Console: store.RuleSet{DailyMinutes: 60, Schedule: sched}}))
-	must(t, st.SaveDevice(store.Device{MAC: "sw:01", Name: "Switch", ProfileID: "max", Shared: true, Mode: store.ModeOnline}))
-	must(t, st.SaveDevice(store.Device{MAC: "ip:01", Name: "iPhone", ProfileID: "max", Mode: store.ModeTraffic}))
+	must(t, st.SaveDevice(store.Device{MAC: "sw:01", Name: "Switch", ProfileID: "max", Shared: true, Mode: store.ModeOnline, ScheduleBlock: true}))
+	must(t, st.SaveDevice(store.Device{MAC: "ip:01", Name: "iPhone", ProfileID: "max", Mode: store.ModeTraffic, ScheduleBlock: true}))
 
 	ctrl := newFakeCtrl()
 	ctrl.stations["sw:01"] = unifi.Station{MAC: "sw:01", Hostname: "Switch", APMAC: "ap:01", ESSID: "Kids"}
@@ -162,36 +162,57 @@ func (h *harness) profile(id string) ProfileView {
 	return ProfileView{}
 }
 
-func TestQuotaBlocksAndNextDayUnblocks(t *testing.T) {
+// nintendo stores Nintendo play time of a profile for the harness day.
+func (h *harness) nintendo(profileID string, minutes int) {
+	h.t.Helper()
+	player := "player-" + profileID
+	must(h.t, h.store.UpsertNintendoDevice(store.NintendoDevice{DeviceID: "nx", Account: 1, Label: "Switch"}))
+	must(h.t, h.store.UpsertNintendoPlayer(store.NintendoPlayer{PlayerID: player, DeviceID: "nx", Nickname: profileID}))
+	must(h.t, h.store.SetNintendoPlayerProfile(player, profileID))
+	must(h.t, h.store.UpsertNintendoUsage(store.NintendoUsage{Date: h.clock.Format("2006-01-02"), DeviceID: "nx", PlayerID: player, Minutes: minutes}))
+}
+
+func TestConsoleTimeFromNintendoNeverBlocks(t *testing.T) {
 	h := newHarness(t, false)
-	for range 31 {
+	for range 40 {
 		h.tick()
 	}
-	if !h.ctrl.blocked["sw:01"] {
-		t.Fatalf("switch should be blocked after the console quota, calls=%v", h.ctrl.calls)
+	if st := h.profile("max").Console; st.UsedToday != 0 || !st.Allowed {
+		t.Fatalf("being online in the WLAN must not count as play time: %+v", st)
 	}
-	if h.ctrl.blocked["ip:01"] {
-		t.Fatal("the phone has its own quota and must stay unblocked")
+	h.nintendo("max", 25)
+	h.tick()
+	if st := h.profile("max").Console; st.UsedToday != 25*time.Minute || st.Remaining != 5*time.Minute {
+		t.Fatalf("Nintendo time not used: %+v", st)
 	}
-	if h.ctrl.blocked["tv:01"] {
-		t.Fatal("unmanaged device must never be blocked")
-	}
+	h.nintendo("max", 31)
+	h.tick()
 	st := h.profile("max").Console
-	if st.Allowed || st.Reason != "Tageslimit erreicht" || st.UsedToday != 30*time.Minute {
+	if st.Allowed || st.Reason != "Tageslimit erreicht" || st.UsedWeek != 31*time.Minute {
 		t.Fatalf("unexpected status: %+v", st)
 	}
-	joined := strings.Join(h.notify.msgs, "\n")
-	if !strings.Contains(joined, "noch 10 Minuten") || !strings.Contains(joined, "noch 5 Minuten") || !strings.Contains(joined, "gesperrt") {
+	if h.ctrl.blocked["sw:01"] || h.ctrl.blocked["ip:01"] || h.ctrl.blocked["tv:01"] {
+		t.Fatalf("used up play time must not block, calls=%v", h.ctrl.calls)
+	}
+	if joined := strings.Join(h.notify.msgs, "\n"); !strings.Contains(joined, "noch 5 Minuten") {
 		t.Fatalf("missing notifications: %v", h.notify.msgs)
 	}
+}
 
-	// Next day within the window everything is unblocked again.
+func TestNoScheduleBlockNeverBlocks(t *testing.T) {
+	h := newHarness(t, false)
+	must(t, h.store.SaveDevice(store.Device{MAC: "sw:01", Name: "Switch", ProfileID: "max", Mode: store.ModeOnline}))
+	h.clock = time.Date(2026, 11, 18, 20, 0, 0, 0, berlin)
+	h.tick()
+	if h.ctrl.blocked["sw:01"] || !h.ctrl.blocked["ip:01"] {
+		t.Fatalf("only devices with schedule block follow the windows, calls=%v", h.ctrl.calls)
+	}
+	// Next day within the window the phone is free again.
 	h.clock = time.Date(2026, 11, 19, 15, 30, 0, 0, berlin)
 	h.tick()
-	if h.ctrl.blocked["sw:01"] || h.ctrl.blocked["ip:01"] {
-		t.Fatalf("devices should be unblocked on the next day, calls=%v", h.ctrl.calls)
+	if h.ctrl.blocked["ip:01"] {
+		t.Fatalf("phone should be unblocked in the window, calls=%v", h.ctrl.calls)
 	}
-
 	ev, _ := h.store.Events(10, berlin, "block", "unblock")
 	if len(ev) != 2 || ev[0].Kind != "unblock" || ev[1].Kind != "block" {
 		t.Fatalf("expected one block and one unblock event, got %+v", ev)
@@ -253,11 +274,15 @@ func TestReleaseForSiblingAndDeviceLock(t *testing.T) {
 	if !h.ctrl.blocked["ip:01"] {
 		t.Fatal("iPhone of max should still be blocked")
 	}
-	if u := h.profile("mia").Console.UsedToday; u != 5*time.Minute {
-		t.Fatalf("mia usage = %v, want 5m", u)
+	if u := h.profile("mia").Console.UsedToday; u != 0 {
+		t.Fatalf("WLAN time must not count as console play time, mia = %v", u)
 	}
-	if u := h.profile("max").Console.UsedToday; u != 0 {
-		t.Fatalf("max usage = %v, want 0", u)
+	// WLAN time of the released console is recorded for mia.
+	if u, _ := h.store.Usage("mia", store.TypeConsole, rules.StartOfDay(h.clock), h.clock); u != 5*time.Minute {
+		t.Fatalf("mia WLAN time = %v, want 5m", u)
+	}
+	if u, _ := h.store.Usage("max", store.TypeConsole, rules.StartOfDay(h.clock), h.clock); u != 0 {
+		t.Fatalf("max WLAN time = %v, want 0", u)
 	}
 
 	_, err = h.store.AddOverride(store.Override{Kind: store.KindLock, ProfileID: "max", DeviceMAC: "sw:01", StartsAt: h.clock, Until: h.clock.Add(time.Hour)})
@@ -270,16 +295,12 @@ func TestReleaseForSiblingAndDeviceLock(t *testing.T) {
 
 func TestBonusAndProfileLock(t *testing.T) {
 	h := newHarness(t, false)
-	for range 31 {
-		h.tick()
-	}
+	h.nintendo("max", 31)
+	h.tick()
 	_, err := h.store.AddOverride(store.Override{Kind: store.KindBonus, ProfileID: "max", Minutes: 15, StartsAt: h.clock, Until: rules.StartOfDay(h.clock).AddDate(0, 0, 1)})
 	must(t, err)
 	h.tick()
-	if h.ctrl.blocked["sw:01"] {
-		t.Fatal("bonus should unblock")
-	}
-	if st := h.profile("max").Console; st.LimitToday != 45 {
+	if st := h.profile("max").Console; st.LimitToday != 45 || !st.Allowed {
 		t.Fatalf("limit with bonus = %d", st.LimitToday)
 	}
 	id, err := h.store.AddOverride(store.Override{Kind: store.KindLock, ProfileID: "max", StartsAt: h.clock, Until: h.clock.Add(time.Hour)})
@@ -457,8 +478,8 @@ func TestInternetBlocker(t *testing.T) {
 	h := newHarness(t, false)
 	fi := &fakeInternet{known: map[string]bool{"ip:01": true}, blocked: map[string]bool{}}
 	h.eng.opts.Internet = fi
-	must(t, h.store.SaveDevice(store.Device{MAC: "ip:01", Name: "iPhone", ProfileID: "max", Mode: store.ModeTraffic, Blocker: store.BlockInternet}))
-	must(t, h.store.SaveDevice(store.Device{MAC: "tv:01", Name: "Fernseher", ProfileID: "max", Blocker: store.BlockInternet}))
+	must(t, h.store.SaveDevice(store.Device{MAC: "ip:01", Name: "iPhone", ProfileID: "max", Mode: store.ModeTraffic, Blocker: store.BlockInternet, ScheduleBlock: true}))
+	must(t, h.store.SaveDevice(store.Device{MAC: "tv:01", Name: "Fernseher", ProfileID: "max", Blocker: store.BlockInternet, ScheduleBlock: true}))
 
 	// Outside the window: internet blocked via the FRITZ!Box, WLAN untouched.
 	h.clock = time.Date(2026, 11, 18, 20, 0, 0, 0, berlin)
@@ -511,7 +532,7 @@ func TestInternetBlocker(t *testing.T) {
 
 func TestInternetBlockerMissing(t *testing.T) {
 	h := newHarness(t, false)
-	must(t, h.store.SaveDevice(store.Device{MAC: "ip:01", Name: "iPhone", ProfileID: "max", Mode: store.ModeTraffic, Blocker: store.BlockInternet}))
+	must(t, h.store.SaveDevice(store.Device{MAC: "ip:01", Name: "iPhone", ProfileID: "max", Mode: store.ModeTraffic, Blocker: store.BlockInternet, ScheduleBlock: true}))
 	h.clock = time.Date(2026, 11, 18, 20, 0, 0, 0, berlin)
 	h.tick()
 	for _, d := range h.profile("max").Devices {

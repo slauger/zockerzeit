@@ -3,7 +3,7 @@
 <div class="page-head">
   <h1>Regeln</h1>
 </div>
-<p class="lead">Außerhalb der Zeitfenster ist das Gerät gesperrt, so entsteht auch die Nachtsperre. Zeiten schreibst du als <code>15:00-18:30</code>, mehrere mit Komma. Ein leeres Limit heißt: kein Limit.</p>
+<p class="lead">Die Limits zählen bei Konsolen die Spielzeit laut Nintendo, bei Handys die Zeit mit Datenverkehr. Erreichte Limits sperren nichts. Außerhalb der Zeitfenster werden nur Geräte gesperrt, bei denen „Außerhalb der Zeitfenster sperren“ an ist, so entsteht die Nachtsperre. Zeiten schreibst du als <code>15:00-18:30</code>, mehrere mit Komma. Ein leeres Limit heißt: kein Limit.</p>
 
 {{range $i, $p := $d.Profiles}}
 {{$new := eq $p.ID ""}}

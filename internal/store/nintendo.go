@@ -251,6 +251,16 @@ func (s *Store) NintendoUsageBetween(from, to string) ([]NintendoUsage, error) {
 	return s.nintendoUsage(`WHERE date >= ? AND date <= ? ORDER BY date DESC, minutes DESC`, from, to)
 }
 
+// NintendoMinutes sums the play time of all Nintendo users mapped to a
+// profile from..to (YYYY-MM-DD, inclusive).
+func (s *Store) NintendoMinutes(profileID, from, to string) (int, error) {
+	var m int
+	err := s.db.QueryRow(`SELECT COALESCE(SUM(u.minutes), 0) FROM nintendo_usage u
+		JOIN nintendo_players p ON p.player_id = u.player_id AND p.device_id = u.device_id
+		WHERE p.profile_id = ? AND u.date >= ? AND u.date <= ?`, profileID, from, to).Scan(&m)
+	return m, err
+}
+
 func affected(res sql.Result, err error) error {
 	if err != nil {
 		return err

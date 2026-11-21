@@ -121,7 +121,7 @@ func Seed(st *store.Store, now time.Time) error {
 	devices := []store.Device{
 		{MAC: "98:b6:e9:00:00:01", Name: "Switch Kinderzimmer", ProfileID: "max", Shared: true, Mode: store.ModeOnline},
 		{MAC: "98:b6:e9:00:00:02", Name: "Switch Wohnzimmer", ProfileID: "max", Shared: true, Mode: store.ModeOnline},
-		{MAC: "3a:10:5f:00:00:03", Name: "iPhone Max", ProfileID: "max", Mode: store.ModeTraffic},
+		{MAC: "3a:10:5f:00:00:03", Name: "iPhone Max", ProfileID: "max", Mode: store.ModeTraffic, ScheduleBlock: true},
 		{MAC: "3a:10:5f:00:00:04", Name: "Switch Lite Mia", ProfileID: "mia", Mode: store.ModeOnline},
 	}
 	for _, d := range devices {

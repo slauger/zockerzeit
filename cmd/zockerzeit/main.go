@@ -123,7 +123,7 @@ func run() error {
 		if err != nil {
 			return err
 		}
-		syncer = nintendo.NewSyncer(st, nintendo.New(cfg.Timezone), box, 5*time.Minute, log)
+		syncer = nintendo.NewSyncer(st, nintendo.New(cfg.Timezone), box, 10*time.Minute, log)
 		webOpts.Nintendo = syncer
 	}
 	handler, err := web.New(st, eng, webOpts, log)

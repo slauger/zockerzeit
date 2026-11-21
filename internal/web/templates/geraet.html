@@ -15,10 +15,10 @@
     <div>
       <h1>{{$d.Device.Name}}</h1>
       <p class="tile-status">
-        <span class="dot {{if $d.State.Blocked}}blocked{{else if $d.State.Active}}active{{else if $d.State.Online}}online{{end}}"></span>
-        {{if $d.State.Blocked}}{{if eq $d.Device.Blocker "internet"}}Internet gesperrt{{else}}gesperrt{{end}}{{else if $d.State.Active}}spielt gerade{{else if $d.State.Online}}online{{else}}aus{{end}}{{if and $d.State.Online $d.State.APName}}, {{$d.State.APName}}{{end}}
+        <span class="dot {{if $d.State.Blocked}}blocked{{else if and $d.State.Active (eq $d.Device.Type "phone")}}active{{else if $d.State.Online}}online{{end}}"></span>
+        {{if $d.State.Blocked}}{{if eq $d.Device.Blocker "internet"}}Internet gesperrt{{else}}gesperrt{{end}}{{else if and $d.State.Active (eq $d.Device.Type "phone")}}aktiv{{else if $d.State.Online}}online{{else}}aus{{end}}{{if and $d.State.Online $d.State.APName}}, {{$d.State.APName}}{{end}}
       </p>
-      <p class="muted">Sperre: {{if eq $d.Device.Blocker "internet"}}nur Internet über die FRITZ!Box, das Gerät bleibt im WLAN{{else}}WLAN trennen über UniFi{{end}}.</p>
+      <p class="muted">Sperre: {{if eq $d.Device.Blocker "internet"}}nur Internet über die FRITZ!Box, das Gerät bleibt im WLAN{{else}}WLAN trennen über UniFi{{end}}. {{if $d.Device.ScheduleBlock}}Außerhalb der Zeitfenster automatisch gesperrt.{{else}}Nur von Hand gesperrt, Zeitfenster und Limits sperren nicht.{{end}}</p>
       {{if $d.State.Note}}<p class="tile-note">{{$d.State.Note}}</p>{{end}}
       <p class="muted">{{typeLabel $d.Device.Type}} von {{$d.Owner.Name}}{{if $d.Device.Shared}}, auch von Geschwistern genutzt{{end}}. {{if $d.State.Reason}}{{$d.State.Reason}}.{{end}}</p>
     </div>
@@ -40,6 +40,7 @@
   {{end}}
 
   <div class="detail-actions">
+    {{if $d.Device.ScheduleBlock}}
     <div class="control-group">
       <h2>Bis zum nächsten Wechsel</h2>
       <p class="muted">Gilt bis {{datetime $d.NextChange}} Uhr, danach greift wieder der Zeitplan.</p>
@@ -48,6 +49,7 @@
         <form method="post" action="/aktion"><input type="hidden" name="back" value="{{$back}}"><input type="hidden" name="action" value="lockdevice-next"><input type="hidden" name="device" value="{{$d.Device.MAC}}"><button class="danger strong">Sperren</button></form>
       </div>
     </div>
+    {{end}}
     <div class="control-group">
       <h2>Sperren</h2>
       <p class="muted">Nur dieses Gerät, die anderen bleiben, wie sie sind.</p>

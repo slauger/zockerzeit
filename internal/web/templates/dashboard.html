@@ -56,10 +56,10 @@
   {{if .Devices}}
   <ul class="chips">
     {{range .Devices}}
-    <li><a href="/geraet/{{.Device.MAC}}" class="chip {{if .Blocked}}blocked{{else if .Active}}active{{else if .Online}}online{{else}}offline{{end}}">
+    <li><a href="/geraet/{{.Device.MAC}}" class="chip {{if .Blocked}}blocked{{else if and .Active (eq .Device.Type "phone")}}active{{else if .Online}}online{{else}}offline{{end}}">
       <span class="dot" aria-hidden="true"></span>
       <span class="chip-name">{{.Device.Name}}</span>
-      <span class="chip-state">{{if .Blocked}}{{if eq .Device.Blocker "internet"}}Internet gesperrt{{else}}gesperrt{{end}}{{else if .Active}}spielt{{if .APName}}, {{.APName}}{{end}}{{else if .Online}}online{{if .APName}}, {{.APName}}{{end}}{{else}}aus{{end}}{{if ne .AttributedTo $p.ID}}, für {{.AttributedTo}}{{end}}{{if and $.DryRun (ne .Blocked .WantBlocked)}}, würde {{if .WantBlocked}}sperren{{else}}freigeben{{end}}{{end}}</span>
+      <span class="chip-state">{{if .Blocked}}{{if eq .Device.Blocker "internet"}}Internet gesperrt{{else}}gesperrt{{end}}{{else if and .Active (eq .Device.Type "phone")}}aktiv{{if .APName}}, {{.APName}}{{end}}{{else if .Online}}online{{if .APName}}, {{.APName}}{{end}}{{else}}aus{{end}}{{if ne .AttributedTo $p.ID}}, für {{.AttributedTo}}{{end}}{{if and $.DryRun (ne .Blocked .WantBlocked)}}, würde {{if .WantBlocked}}sperren{{else}}freigeben{{end}}{{end}}</span>
     </a></li>
     {{end}}
   </ul>

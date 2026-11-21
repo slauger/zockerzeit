@@ -499,11 +499,7 @@ func (e *Engine) evaluate(profiles []store.Profile, ovs []store.Override, now ti
 		po, list := profileOverrides(p.ID, ovs)
 		v := ProfileView{Profile: p, Overrides: list}
 		for _, t := range store.DeviceTypes {
-			today, err := e.store.Usage(p.ID, t, dayStart, now.Add(time.Second))
-			if err != nil {
-				return nil, err
-			}
-			week, err := e.store.Usage(p.ID, t, weekStart, now.Add(time.Second))
+			today, week, err := e.usage(p.ID, t, dayStart, weekStart, now)
 			if err != nil {
 				return nil, err
 			}
@@ -517,6 +513,27 @@ func (e *Engine) evaluate(profiles []store.Profile, ovs []store.Override, now ti
 		views = append(views, v)
 	}
 	return views, nil
+}
+
+// usage returns the play time of a profile today and this week. Console
+// time comes from Nintendo, because being online in the WLAN says nothing
+// about playing. Phone time is measured by traffic.
+func (e *Engine) usage(profileID, deviceType string, dayStart, weekStart, now time.Time) (time.Duration, time.Duration, error) {
+	if deviceType == store.TypeConsole {
+		const layout = "2006-01-02"
+		today, err := e.store.NintendoMinutes(profileID, dayStart.Format(layout), now.Format(layout))
+		if err != nil {
+			return 0, 0, err
+		}
+		week, err := e.store.NintendoMinutes(profileID, weekStart.Format(layout), now.Format(layout))
+		return time.Duration(today) * time.Minute, time.Duration(week) * time.Minute, err
+	}
+	today, err := e.store.Usage(profileID, deviceType, dayStart, now.Add(time.Second))
+	if err != nil {
+		return 0, 0, err
+	}
+	week, err := e.store.Usage(profileID, deviceType, weekStart, now.Add(time.Second))
+	return today, week, err
 }
 
 // profileOverrides folds the active overrides of a profile into rule input.
@@ -571,12 +588,26 @@ func decide(d store.Device, statuses map[string]ProfileView, ovs []store.Overrid
 			return false, fmt.Sprintf("Freigabe bis %s (noch %d Min)", o.Until.Format("15:04"), int(o.Until.Sub(now).Minutes()+0.5)), true
 		}
 	}
+	if !d.ScheduleBlock {
+		return false, "Keine Sperre nach Zeitplan", false
+	}
 	v, ok := statuses[d.ProfileID]
 	if !ok {
 		return false, "Kein Profil", false
 	}
+	// Only the time windows and parent locks block. Used up play time does
+	// not: a blocked console could no longer report its play time.
 	st := v.Status(d.Type())
-	return !st.Allowed, st.Reason, false
+	locked := false
+	for _, o := range v.Overrides {
+		if o.Kind == store.KindLock && o.DeviceMAC == "" && o.Until.After(now) {
+			locked = true
+		}
+	}
+	if !st.Allowed && (locked || !st.InWindow) {
+		return true, st.Reason, false
+	}
+	return false, "Im Zeitfenster", false
 }
 
 func (e *Engine) enforce(ctx context.Context, ds *DeviceState, now time.Time) error {

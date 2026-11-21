@@ -4,7 +4,7 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/slauger/zockerzeit)](https://goreportcard.com/report/github.com/slauger/zockerzeit)
 [![License](https://img.shields.io/github/license/slauger/zockerzeit)](LICENSE)
 
-Zockerzeit ("gaming time") tracks and limits how long kids play by blocking their consoles and phones on a UniFi WLAN. Parents agree on time windows and daily or weekly budgets, Zockerzeit records when, how long and where each device is used and cuts the WLAN when the time is up, so nobody has to walk over and argue.
+Zockerzeit ("gaming time") tracks how long kids play and when they are online. Console play time comes from the Nintendo parental controls, per kid and per game; phones and consoles are seen in a UniFi WLAN, so you know when and where they were online. Parents agree on time windows and daily or weekly budgets, and can optionally cut the WLAN or the internet of a device outside its time windows or with one tap.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/dashboard-dark.png">
@@ -14,10 +14,10 @@ Zockerzeit ("gaming time") tracks and limits how long kids play by blocking thei
 - 🎮 **Time windows and budgets** - weekday windows, daily and weekly limits per kid, separately for consoles and phones (the night lock is just a window)
 - 🔋 **Energy bar** - remaining time at a glance, one segment per 15 minutes
 - 📊 **History** - play time per day and device, a timeline per day, a weekday/hour heatmap and usage per room (access point)
-- ⛔ **Automatic blocking** - per device either disconnect it from the WLAN (UniFi) or cut only its internet access (FRITZ!Box, TR-064), nothing to install on the devices
+- ⛔ **Optional blocking** - per device a switch to block it outside its time windows, plus lock buttons; either disconnect it from the WLAN (UniFi) or cut only its internet access (FRITZ!Box, TR-064). Used up budgets never block: a blocked console could not report its play time anymore
 - 👆 **Parent controls** - one tap for bonus minutes, free play, a pause for an hour or until tomorrow
 - 👫 **Shared consoles** - release a sibling's console for 30 minutes, the time counts on the right budget
-- 🍄 **Nintendo parental controls** - connect one or more Nintendo accounts and see play time per console and per user, mapped to your kids
+- 🍄 **Nintendo parental controls** - connect one or more Nintendo accounts; console budgets count the play time Nintendo reports for the users mapped to a kid, with game names and covers in the history
 - 📱 **Kid app** - an installable app (PWA) per kid that shows the remaining time, so nobody has to ask
 - 🔔 **Push warnings** - optional ntfy notifications 10 and 5 minutes before the end
 - 🧪 **Test mode** - records and shows decisions without blocking anything (default)
@@ -46,7 +46,7 @@ flowchart LR
     ZZ -.->|optional| N[ntfy]
 ```
 
-Every minute Zockerzeit asks the controller which clients are connected and how much traffic they produced, and matches them to the managed devices by MAC address. Consoles count as playing while connected (they drop off the WLAN in standby), phones only while they produce traffic. The minutes are stored per device and device type and attributed to a kid, parallel use of several devices counts once. After each poll the rules are evaluated and devices are blocked or unblocked with `block-sta` / `unblock-sta`. Devices that are not assigned to a kid are never touched.
+Every minute Zockerzeit asks the controller which clients are connected and how much traffic they produced, and matches them to the managed devices by MAC address. This WLAN time is stored per device as activity: when and where a device was online. Phone budgets count the minutes with traffic. Console budgets count the play time from the Nintendo parental controls, fetched every ten minutes, because a console in standby stays in the WLAN and games also run offline. After each poll the rules are evaluated; devices with "block outside the time windows" switched on are blocked or unblocked with `block-sta` / `unblock-sta` or the FRITZ!Box. Devices that are not assigned to a kid are never touched.
 
 All configuration (kids, rules, devices) lives in the SQLite database and is edited in the web UI. The config file only holds the connection settings.
 
