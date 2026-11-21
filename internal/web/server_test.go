@@ -101,7 +101,7 @@ func TestPagesRender(t *testing.T) {
 		"/einstellungen":                 `href="/kind/max"`,
 		"/kind/max":                      "Hallo Max!",
 		"/kind/max/manifest.webmanifest": `"start_url":"/kind/max"`,
-		"/kind/sw.js":                    "zockerzeit-kid-v1",
+		"/kind/sw.js":                    "zockerzeit-kid-v2",
 		"/manifest.webmanifest":          `"start_url":"/"`,
 		"/static/install.js":             "Zum Home-Bildschirm",
 		"/login":                         "Passwort",

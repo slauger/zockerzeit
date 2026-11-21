@@ -1,9 +1,10 @@
 // Service worker for the kid app: network first, falls back to the last
 // cached copy of the kid page so the app still opens without connection.
-const CACHE = "zockerzeit-kid-v1";
+const CACHE = "zockerzeit-kid-v2";
 const SHELL = [
   "/static/app.css",
   "/static/kid.js",
+  "/static/install.js",
   "/static/favicon.svg",
   "/static/fonts/bricolage-grotesque-latin-wght-normal.woff2",
   "/static/fonts/atkinson-hyperlegible-latin-400-normal.woff2",
