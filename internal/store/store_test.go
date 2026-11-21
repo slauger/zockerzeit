@@ -236,3 +236,24 @@ func TestMigrationAddsPhoneRules(t *testing.T) {
 		t.Fatalf("migrated phone usage = %v, %v", u, err)
 	}
 }
+
+func TestSettings(t *testing.T) {
+	s := newStore(t)
+	got, err := s.Settings()
+	if err != nil || len(got) != 0 {
+		t.Fatalf("empty settings: %v %v", got, err)
+	}
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(s.SetSetting("dry_run", "true"))
+	must(s.SetSetting("dry_run", "false"))
+	must(s.SetSetting("wlan_blocking", "true"))
+	got, _ = s.Settings()
+	if got["dry_run"] != "false" || got["wlan_blocking"] != "true" || len(got) != 2 {
+		t.Fatalf("settings = %v", got)
+	}
+}

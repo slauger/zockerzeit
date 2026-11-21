@@ -1,0 +1,43 @@
+{{define "content"}}
+{{with .Data}}
+<div class="page-head">
+  <h1>Einstellungen</h1>
+</div>
+<form method="post" action="/einstellungen" class="settings">
+  <section class="card">
+    <h2>Betrieb</h2>
+    <label class="switch big">
+      <input type="checkbox" name="dry_run" role="switch" {{if .Settings.DryRun}}checked{{end}}>
+      <span class="switch-track" aria-hidden="true"></span>
+      <span><strong>Testmodus</strong><br><span class="muted">Zockerzeit zeichnet auf und zeigt im Protokoll, was es tun würde, sperrt und entsperrt aber nicht von selbst. Deine Knöpfe auf den Geräteseiten wirken trotzdem.</span></span>
+    </label>
+  </section>
+
+  <section class="card">
+    <h2>Sperren</h2>
+    <p class="muted">Welche Werkzeuge Zockerzeit benutzen darf. Ist eins ausgeschaltet, bleiben Geräte mit dieser Sperre so, wie sie gerade sind.</p>
+    <label class="switch big">
+      <input type="checkbox" name="wlan_blocking" role="switch" {{if .Settings.WLANBlocking}}checked{{end}}>
+      <span class="switch-track" aria-hidden="true"></span>
+      <span><strong>WLAN trennen (UniFi)</strong><br><span class="muted">Wirft das Gerät aus dem WLAN und lässt es nicht wieder rein.</span></span>
+    </label>
+    <label class="switch big {{if not .Internet}}is-disabled{{end}}">
+      <input type="checkbox" name="internet_blocking" role="switch" {{if .Settings.InternetBlocking}}checked{{end}} {{if not .Internet}}disabled{{end}}>
+      <span class="switch-track" aria-hidden="true"></span>
+      <span><strong>Nur Internet (FRITZ!Box)</strong><br><span class="muted">{{if .Internet}}Das Gerät bleibt im WLAN, nur das Internet ist zu. Funktioniert auch für Geräte am Kabel, nicht im Gastnetz.{{else}}Nicht verfügbar: In der Konfiguration ist keine FRITZ!Box eingetragen.{{end}}</span></span>
+    </label>
+    {{if .Internet}}
+    <div class="field default-blocker">
+      <span class="field-label">Standard für neue Geräte</span>
+      <div class="segmented">
+        <label><input type="radio" name="default_blocker" value="wlan" {{if ne .Settings.DefaultBlocker "internet"}}checked{{end}}><span>WLAN trennen</span></label>
+        <label><input type="radio" name="default_blocker" value="internet" {{if eq .Settings.DefaultBlocker "internet"}}checked{{end}}><span>Nur Internet</span></label>
+      </div>
+    </div>
+    {{else}}<input type="hidden" name="default_blocker" value="wlan">{{end}}
+  </section>
+
+  <div class="form-actions"><button class="primary">Speichern</button></div>
+</form>
+{{end}}
+{{end}}

@@ -52,6 +52,26 @@ type Options struct {
 	Internet InternetBlocker
 }
 
+// Settings are changed in the UI and stored in the database. Values that
+// were never saved fall back to the configuration.
+type Settings struct {
+	// DryRun simulates automatic decisions instead of enforcing them.
+	DryRun bool `json:"dryRun"`
+	// WLANBlocking allows blocking via UniFi.
+	WLANBlocking bool `json:"wlanBlocking"`
+	// InternetBlocking allows blocking via the FRITZ!Box.
+	InternetBlocking bool `json:"internetBlocking"`
+	// DefaultBlocker is preselected for new devices.
+	DefaultBlocker string `json:"defaultBlocker"`
+}
+
+const (
+	settingDryRun           = "dry_run"
+	settingWLANBlocking     = "wlan_blocking"
+	settingInternetBlocking = "internet_blocking"
+	settingDefaultBlocker   = "default_blocker"
+)
+
 // DeviceState is the live state of a managed device.
 type DeviceState struct {
 	Device      store.Device `json:"device"`
@@ -149,6 +169,8 @@ type Engine struct {
 	// seeded from the log on the first poll so restarts do not log again.
 	presence       map[string]presence
 	presenceLoaded bool
+	// set holds the settings of the current poll.
+	set Settings
 
 	mu       sync.RWMutex
 	snapshot Snapshot
@@ -188,7 +210,59 @@ func (e *Engine) Location() *time.Location { return e.opts.Location }
 func (e *Engine) Now() time.Time { return e.now().In(e.opts.Location) }
 
 // DryRun reports whether the engine runs in test mode.
-func (e *Engine) DryRun() bool { return e.opts.DryRun }
+func (e *Engine) DryRun() bool { return e.Settings().DryRun }
+
+// Settings returns the current settings.
+func (e *Engine) Settings() Settings {
+	set := Settings{
+		DryRun:           e.opts.DryRun,
+		WLANBlocking:     true,
+		InternetBlocking: e.opts.Internet != nil,
+		DefaultBlocker:   store.BlockWLAN,
+	}
+	stored, err := e.store.Settings()
+	if err != nil {
+		e.log.Warn("loading settings failed", "err", err)
+		return set
+	}
+	flag := func(key string, def bool) bool {
+		if v, ok := stored[key]; ok {
+			return v == "true"
+		}
+		return def
+	}
+	set.DryRun = flag(settingDryRun, set.DryRun)
+	set.WLANBlocking = flag(settingWLANBlocking, set.WLANBlocking)
+	set.InternetBlocking = flag(settingInternetBlocking, set.InternetBlocking) && e.opts.Internet != nil
+	if v := stored[settingDefaultBlocker]; v == store.BlockInternet && e.opts.Internet != nil {
+		set.DefaultBlocker = v
+	}
+	return set
+}
+
+// SaveSettings stores the settings.
+func (e *Engine) SaveSettings(set Settings) error {
+	b := func(v bool) string {
+		if v {
+			return "true"
+		}
+		return "false"
+	}
+	if set.DefaultBlocker != store.BlockInternet {
+		set.DefaultBlocker = store.BlockWLAN
+	}
+	for k, v := range map[string]string{
+		settingDryRun:           b(set.DryRun),
+		settingWLANBlocking:     b(set.WLANBlocking),
+		settingInternetBlocking: b(set.InternetBlocking),
+		settingDefaultBlocker:   set.DefaultBlocker,
+	} {
+		if err := e.store.SetSetting(k, v); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 // InternetEnabled reports whether devices can be blocked via the FRITZ!Box.
 func (e *Engine) InternetEnabled() bool { return e.opts.Internet != nil }
@@ -237,6 +311,8 @@ func (e *Engine) Tick(ctx context.Context) error {
 }
 
 func (e *Engine) tick(ctx context.Context, now time.Time) error {
+	set := e.Settings()
+	e.set = set
 	stations, err := e.ctrl.Stations(ctx)
 	if err != nil {
 		return fmt.Errorf("stations: %w", err)
@@ -289,7 +365,12 @@ func (e *Engine) tick(ctx context.Context, now time.Time) error {
 				ds.Note = "FRITZ!Box: " + err.Error()
 			} else {
 				ds.Blocked = b
+				if !set.InternetBlocking {
+					ds.Note = "Internetsperre in den Einstellungen ausgeschaltet"
+				}
 			}
+		} else if !set.WLANBlocking {
+			ds.Note = "WLAN-Sperre in den Einstellungen ausgeschaltet"
 		}
 		st, ok := online[d.MAC]
 		if !ok {
@@ -373,7 +454,7 @@ func (e *Engine) tick(ctx context.Context, now time.Time) error {
 	sort.Slice(seen, func(i, j int) bool { return seen[i].Name < seen[j].Name })
 
 	e.mu.Lock()
-	e.snapshot = Snapshot{At: now, DryRun: e.opts.DryRun, Profiles: views, Seen: seen}
+	e.snapshot = Snapshot{At: now, DryRun: set.DryRun, Profiles: views, Seen: seen}
 	if len(errs) > 0 {
 		e.snapshot.Error = errors.Join(errs...).Error()
 	}
@@ -516,7 +597,7 @@ func (e *Engine) enforce(ctx context.Context, ds *DeviceState, now time.Time) er
 	}
 	// Test mode only simulates automatic decisions. What a parent explicitly
 	// set for a device is applied.
-	if e.opts.DryRun && !ds.Manual {
+	if e.set.DryRun && !ds.Manual {
 		if !known || prev != want {
 			e.event(now, ds.Device, "dryrun", fmt.Sprintf("%s würde %s (Testmodus): %s", ds.Device.Name, verb, ds.Reason))
 		}
@@ -639,7 +720,7 @@ func (e *Engine) Release(ctx context.Context, mac string) error {
 	defer e.tickMu.Unlock()
 	delete(e.intent, mac)
 	delete(e.counters, mac)
-	if e.opts.DryRun {
+	if e.Settings().DryRun {
 		return nil
 	}
 	err := e.ctrl.Unblock(ctx, mac)

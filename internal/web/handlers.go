@@ -392,6 +392,8 @@ type devicesData struct {
 	States   map[string]engine.DeviceState
 	// Internet is true when devices can be blocked via the FRITZ!Box.
 	Internet bool
+	// DefaultBlocker is preselected for devices found in the WLAN.
+	DefaultBlocker string
 }
 
 // guessType suggests a device type from the hostname reported by UniFi.
@@ -435,7 +437,7 @@ func (s *Server) devicesPage(w http.ResponseWriter, r *http.Request) {
 		}
 		groups = append(groups, g)
 	}
-	s.render(w, r, "geraete", "Geräte", devicesData{Groups: groups, Profiles: profiles, Seen: seen, States: states, Internet: s.engine.InternetEnabled()})
+	s.render(w, r, "geraete", "Geräte", devicesData{Groups: groups, Profiles: profiles, Seen: seen, States: states, Internet: s.engine.InternetEnabled(), DefaultBlocker: s.engine.Settings().DefaultBlocker})
 }
 
 func (s *Server) saveDevice(w http.ResponseWriter, r *http.Request) {
@@ -821,4 +823,39 @@ func (s *Server) kidServiceWorker(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
 	_, _ = w.Write(b)
+}
+
+// --- settings -----------------------------------------------------------
+
+type settingsData struct {
+	Settings engine.Settings
+	Internet bool
+}
+
+func (s *Server) settingsPage(w http.ResponseWriter, r *http.Request) {
+	s.render(w, r, "einstellungen", "Einstellungen", settingsData{Settings: s.engine.Settings(), Internet: s.engine.InternetEnabled()})
+}
+
+func (s *Server) saveSettings(w http.ResponseWriter, r *http.Request) {
+	set := engine.Settings{
+		DryRun:           r.FormValue("dry_run") == "on",
+		WLANBlocking:     r.FormValue("wlan_blocking") == "on",
+		InternetBlocking: r.FormValue("internet_blocking") == "on",
+		DefaultBlocker:   r.FormValue("default_blocker"),
+	}
+	before := s.engine.Settings()
+	if err := s.engine.SaveSettings(set); err != nil {
+		redirectErr(w, r, "/einstellungen", err)
+		return
+	}
+	msg := "Einstellungen gespeichert"
+	switch {
+	case before.DryRun && !set.DryRun:
+		msg = "Testmodus aus: Zockerzeit sperrt und entsperrt jetzt selbst"
+	case !before.DryRun && set.DryRun:
+		msg = "Testmodus an: Zockerzeit simuliert nur noch"
+	}
+	_ = s.store.AddEvent(store.Event{TS: s.engine.Now(), Kind: "config", Message: msg})
+	s.applyNow(r)
+	redirect(w, r, "/einstellungen", msg)
 }

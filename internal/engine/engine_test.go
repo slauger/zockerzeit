@@ -523,3 +523,34 @@ func TestInternetBlockerMissing(t *testing.T) {
 		t.Fatal("without a FRITZ!Box nothing may fall back to WLAN blocking")
 	}
 }
+
+func TestSettingsOverrideConfig(t *testing.T) {
+	h := newHarness(t, true)
+	set := h.eng.Settings()
+	if !set.DryRun || !set.WLANBlocking || set.InternetBlocking || set.DefaultBlocker != store.BlockWLAN {
+		t.Fatalf("defaults from config: %+v", set)
+	}
+	h.clock = time.Date(2026, 11, 18, 20, 0, 0, 0, berlin)
+
+	// Switching the WLAN blocking off keeps everything untouched.
+	must(t, h.eng.SaveSettings(Settings{DryRun: false, WLANBlocking: false, DefaultBlocker: "internet"}))
+	h.tick()
+	if len(h.ctrl.calls) != 0 {
+		t.Fatalf("disabled WLAN blocking must not block: %v", h.ctrl.calls)
+	}
+	for _, d := range h.profile("max").Devices {
+		if !strings.Contains(d.Note, "ausgeschaltet") {
+			t.Fatalf("note missing: %+v", d)
+		}
+	}
+	if got := h.eng.Settings(); got.DefaultBlocker != store.BlockWLAN {
+		t.Fatalf("internet default without FRITZ!Box: %+v", got)
+	}
+
+	// Leaving test mode in the UI enforces the rules.
+	must(t, h.eng.SaveSettings(Settings{DryRun: false, WLANBlocking: true}))
+	h.tick()
+	if !h.ctrl.blocked["sw:01"] || h.eng.DryRun() || h.eng.Snapshot().DryRun {
+		t.Fatalf("settings not applied, calls=%v", h.ctrl.calls)
+	}
+}

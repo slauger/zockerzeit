@@ -201,6 +201,7 @@ var migrations = []string{
 	UPDATE samples SET device_type = 'phone' WHERE mac IN (SELECT mac FROM devices WHERE mode = 'traffic');
 	CREATE INDEX samples_profile_type_ts ON samples (profile_id, device_type, ts);`,
 	`ALTER TABLE devices ADD COLUMN blocker TEXT NOT NULL DEFAULT 'wlan';`,
+	`CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);`,
 }
 
 // Open opens (and migrates) the database at path. Use ":memory:" for tests.
@@ -570,4 +571,29 @@ func (s *Store) Events(limit int, loc *time.Location, kinds ...string) ([]Event,
 		out = append(out, e)
 	}
 	return out, rows.Err()
+}
+
+// Settings returns all stored settings.
+func (s *Store) Settings() (map[string]string, error) {
+	rows, err := s.db.Query(`SELECT key, value FROM settings`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	out := map[string]string{}
+	for rows.Next() {
+		var k, v string
+		if err := rows.Scan(&k, &v); err != nil {
+			return nil, err
+		}
+		out[k] = v
+	}
+	return out, rows.Err()
+}
+
+// SetSetting stores a single setting.
+func (s *Store) SetSetting(key, value string) error {
+	_, err := s.db.Exec(`INSERT INTO settings (key, value) VALUES (?, ?)
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value`, key, value)
+	return err
 }

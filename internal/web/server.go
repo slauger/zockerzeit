@@ -45,6 +45,8 @@ type Engine interface {
 	Location() *time.Location
 	DryRun() bool
 	InternetEnabled() bool
+	Settings() engine.Settings
+	SaveSettings(engine.Settings) error
 }
 
 // Options configure the web server.
@@ -76,7 +78,7 @@ func New(st *store.Store, eng Engine, opts Options, log *slog.Logger) (*Server, 
 			return nil, err
 		}
 	}
-	for _, page := range []string{"dashboard", "verlauf", "regeln", "geraete", "geraet", "protokoll", "login", "kind"} {
+	for _, page := range []string{"dashboard", "verlauf", "regeln", "geraete", "geraet", "protokoll", "einstellungen", "login", "kind"} {
 		t, err := template.New(page).Funcs(funcs(eng.Location())).ParseFS(templateFS, "templates/layout.html", "templates/"+page+".html")
 		if err != nil {
 			return nil, fmt.Errorf("template %s: %w", page, err)
@@ -111,6 +113,8 @@ func (s *Server) routes() {
 	m.Handle("POST /geraete/{mac}/loeschen", s.auth(s.deleteDevice))
 	m.Handle("GET /geraet/{mac}", s.auth(s.deviceDetail))
 	m.Handle("GET /protokoll", s.auth(s.eventsPage))
+	m.Handle("GET /einstellungen", s.auth(s.settingsPage))
+	m.Handle("POST /einstellungen", s.auth(s.saveSettings))
 	m.Handle("POST /aktion", s.auth(s.action))
 	m.Handle("POST /aktion/{id}/beenden", s.auth(s.endOverride))
 	m.Handle("GET /api/status", s.auth(s.statusAPI))

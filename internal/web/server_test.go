@@ -81,6 +81,7 @@ func TestPagesRender(t *testing.T) {
 		"/regeln":                        "Neues Profil",
 		"/geraete":                       "Switch Kinderzimmer",
 		"/protokoll":                     "Protokoll",
+		"/einstellungen":                 "Nur Internet (FRITZ!Box)",
 		"/protokoll?art=online":          "Online und offline",
 		"/kind/max":                      "Hallo Max!",
 		"/kind/max/manifest.webmanifest": `"start_url":"/kind/max"`,
@@ -431,5 +432,26 @@ func TestEnergyCells(t *testing.T) {
 	ql := f["quotaLeft"].(func(rules.Status) time.Duration)
 	if ql(rules.Status{}) != 0 || ql(rules.Status{LimitToday: 30, UsedToday: time.Hour}) != 0 || ql(rules.Status{LimitToday: 30}) != 30*time.Minute {
 		t.Error("quotaLeft")
+	}
+}
+
+func TestSettingsPage(t *testing.T) {
+	e := newEnv(t, "")
+	if _, body := e.post("/einstellungen", url.Values{"dry_run": {"on"}, "wlan_blocking": {"on"}}); !strings.Contains(body, "Testmodus an") {
+		t.Fatal("enabling test mode not confirmed")
+	}
+	_, body := e.get("/")
+	if !strings.Contains(body, "banner warn") {
+		t.Fatal("test mode banner missing")
+	}
+	if _, body := e.post("/einstellungen", url.Values{"wlan_blocking": {"on"}}); !strings.Contains(body, "Testmodus aus") {
+		t.Fatal("disabling test mode not confirmed")
+	}
+	if _, body := e.post("/einstellungen", url.Values{}); !strings.Contains(body, "Einstellungen gespeichert") {
+		t.Fatal("saving settings not confirmed")
+	}
+	ev, _ := e.store.Events(5, berlin, "config")
+	if len(ev) < 3 {
+		t.Fatalf("settings changes not logged: %+v", ev)
 	}
 }

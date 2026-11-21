@@ -367,6 +367,15 @@ label.check { flex-direction: row; align-items: center; gap: 0.45rem; color: var
 
 .tile-link { font-weight: 700; }
 
+.settings { max-width: 860px; }
+.settings .card { display: flex; flex-direction: column; gap: 1.1rem; }
+.settings .card > .muted { margin: -0.5rem 0 0; }
+.switch.big { align-items: flex-start; font-weight: 400; }
+.switch.big .switch-track { margin-top: 0.2rem; }
+.switch.is-disabled { opacity: 0.55; cursor: not-allowed; }
+.default-blocker { margin-top: 0.25rem; }
+.form-actions { margin-top: 1rem; }
+
 .crumb { display: inline-block; margin-bottom: 1rem; font-weight: 700; }
 .device-detail { display: flex; flex-direction: column; gap: 2rem; background: var(--surface); border: 1px solid var(--border); border-radius: 24px; padding: 2rem; }
 .detail-head { display: flex; align-items: flex-start; gap: 1.25rem; }
