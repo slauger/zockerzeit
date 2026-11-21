@@ -244,7 +244,16 @@ func (s *Server) nintendoByProfile() map[string]nintendoToday {
 		}
 		t := out[u.ProfileID]
 		t.Minutes += u.Minutes
-		t.Parts = append(t.Parts, nintendoPart{Console: label[u.DeviceID], Minutes: u.Minutes})
+		merged := false
+		for i := range t.Parts {
+			if t.Parts[i].Console == label[u.DeviceID] {
+				t.Parts[i].Minutes += u.Minutes
+				merged = true
+			}
+		}
+		if !merged {
+			t.Parts = append(t.Parts, nintendoPart{Console: label[u.DeviceID], Minutes: u.Minutes})
+		}
 		out[u.ProfileID] = t
 	}
 	for k, t := range out {

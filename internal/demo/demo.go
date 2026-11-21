@@ -172,7 +172,11 @@ var demoGames = []store.NintendoTitle{
 // per kid and two weeks of play time per game, unless an account exists.
 func SeedNintendo(st *store.Store, now time.Time) error {
 	if accs, err := st.NintendoAccounts(); err != nil || len(accs) > 0 {
-		return err
+		if err != nil {
+			return err
+		}
+		// Older demo databases have play time that is not attributed yet.
+		return nintendo.Attribute(st, now, now.Location())
 	}
 	rng := rand.New(rand.NewPCG(42, 8)) //nolint:gosec // deterministic sample data
 	id, err := st.AddNintendoAccount(store.NintendoAccount{Label: "Familie", AccountID: "demo"})
@@ -213,9 +217,10 @@ func SeedNintendo(st *store.Store, now time.Time) error {
 	}
 	for back := range 14 {
 		date := now.AddDate(0, 0, -back).Format("2006-01-02")
-		for _, c := range consoles {
+		for ci, c := range consoles {
 			for i, p := range players {
-				if rng.IntN(3) == 0 {
+				// Mostly everyone plays on their own console.
+				if rng.IntN(3) == 0 || (i != ci && rng.IntN(4) != 0) {
 					continue
 				}
 				var games []store.NintendoGame
@@ -224,7 +229,7 @@ func SeedNintendo(st *store.Store, now time.Time) error {
 					if rng.IntN(3) == 0 {
 						continue
 					}
-					m := 5 + rng.IntN(50)
+					m := 5 + rng.IntN(25)
 					total += m
 					games = append(games, store.NintendoGame{ApplicationID: g.ApplicationID, Minutes: m})
 				}
