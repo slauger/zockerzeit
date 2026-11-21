@@ -174,3 +174,72 @@ func TestAttribute(t *testing.T) {
 		t.Fatalf("after reset: lea=%d finn=%d", minutes("lea", today), minutes("finn", today))
 	}
 }
+
+type recordNotify struct{ msgs []string }
+
+func (r *recordNotify) Notify(_ context.Context, event, title, message string) error {
+	r.msgs = append(r.msgs, event+"|"+title+"|"+message)
+	return nil
+}
+
+func TestAnnounceStart(t *testing.T) {
+	f, c := newFake(t)
+	st, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = st.Close() }()
+	berlin, _ := time.LoadLocation("Europe/Berlin")
+	if err := st.SaveProfile(store.Profile{ID: "finn", Name: "Finn"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SaveDevice(store.Device{MAC: "aa:01", Name: "Switch 2 Finn", ProfileID: "finn"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.UpsertNintendoDevice(store.NintendoDevice{DeviceID: "DEV1", Account: 1, Label: "x"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetNintendoDeviceMAC("DEV1", "aa:01"); err != nil {
+		t.Fatal(err)
+	}
+	box, _ := secret.NewBox([]byte("k"), "nintendo")
+	s := NewSyncer(st, c, box, time.Minute, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	s.Location = berlin
+	clock := time.Date(2026, 11, 21, 15, 0, 0, 0, berlin)
+	s.now = func() time.Time { return clock }
+	rec := &recordNotify{}
+	s.Notify = rec
+
+	login, verifier, _ := s.LoginURL()
+	u, _ := url.Parse(login)
+	f.challenge = u.Query().Get("session_token_code_challenge")
+	if _, err := s.Connect(context.Background(), "Papa", "npf54789befb391a838://auth#session_token_code=CODE", verifier); err != nil {
+		t.Fatal(err)
+	}
+	if len(rec.msgs) != 1 || !strings.HasPrefix(rec.msgs[0], "start|Finn spielt|Kart, Bauen auf Switch 2 Finn") {
+		t.Fatalf("start notification: %v", rec.msgs)
+	}
+	// Nothing new: no notification.
+	clock = clock.Add(10 * time.Minute)
+	s.SyncAll(context.Background())
+	if len(rec.msgs) != 1 {
+		t.Fatalf("unexpected notifications: %v", rec.msgs)
+	}
+	// More play time while the console was active recently: no new start.
+	if err := st.AddNintendoPlay([]store.NintendoPlay{{TS: clock, Date: "2026-11-21", DeviceID: "DEV1", PlayerID: "P1", ProfileID: "finn", Minutes: 5}}); err != nil {
+		t.Fatal(err)
+	}
+	clock = clock.Add(10 * time.Minute)
+	s.noteFresh(store.NintendoUsage{}, "2026-11-21", "DEV1", PlayerDay{PlayerID: "P1", Minutes: 3})
+	s.announce(context.Background(), clock)
+	if len(rec.msgs) != 1 {
+		t.Fatalf("running session announced again: %v", rec.msgs)
+	}
+	// After a long pause it is a new start; unknown kid and game.
+	clock = clock.Add(2 * time.Hour)
+	s.noteFresh(store.NintendoUsage{}, "2026-11-21", "DEV1", PlayerDay{PlayerID: "PX", Minutes: 3, Games: []Game{{ApplicationID: "0100ZZ", Minutes: 3}}})
+	s.announce(context.Background(), clock)
+	if len(rec.msgs) != 2 || !strings.HasPrefix(rec.msgs[1], "start|Jemand spielt|spielt auf Switch 2 Finn") {
+		t.Fatalf("new start: %v", rec.msgs)
+	}
+}

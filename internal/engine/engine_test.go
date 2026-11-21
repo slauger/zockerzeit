@@ -87,7 +87,7 @@ func (f *fakeCtrl) traffic(mac string, add int64) {
 
 type fakeNotifier struct{ msgs []string }
 
-func (n *fakeNotifier) Notify(_ context.Context, title, msg string) error {
+func (n *fakeNotifier) Notify(_ context.Context, _, title, msg string) error {
 	n.msgs = append(n.msgs, title+": "+msg)
 	return nil
 }

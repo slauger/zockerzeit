@@ -409,6 +409,9 @@ label.check { flex-direction: row; align-items: center; gap: 0.45rem; color: var
 .nintendo-line { color: var(--text-muted); font-size: 0.95rem; }
 .nintendo-line strong { color: var(--text); }
 
+.notify-events { display: grid; gap: 0.8rem; }
+.channel-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.5rem; }
+.channel-list li { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; padding: 0.5rem 0.75rem; border-radius: 14px; background: var(--surface-2); }
 .games { display: flex; flex-direction: column; gap: 1rem; }
 .games h2 .muted { font-size: 1rem; font-weight: 600; margin-left: 0.4rem; }
 .game-top { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.75rem; max-width: 760px; }

@@ -99,12 +99,19 @@ func run() error {
 		log.Info("internet blocking via FRITZ!Box enabled", "url", cfg.Fritzbox.URL)
 	}
 
-	var notifier engine.Notifier
+	var static notify.Notifier
 	if cfg.Notify.NtfyURL != "" {
-		notifier = notify.NewNtfy(cfg.Notify.NtfyURL, cfg.Notify.NtfyToken)
+		static = notify.NewNtfy(cfg.Notify.NtfyURL, cfg.Notify.NtfyToken)
 	}
+	var notifyBox *secret.Box
+	if cfg.Auth.SessionSecret != "" {
+		if notifyBox, err = secret.NewBox([]byte(cfg.Auth.SessionSecret), "notify"); err != nil {
+			return err
+		}
+	}
+	hub := notify.NewHub(st, notifyBox, static, log)
 
-	eng := engine.New(st, ctrl, notifier, engine.Options{
+	eng := engine.New(st, ctrl, hub, engine.Options{
 		Interval: cfg.PollInterval, DryRun: cfg.DryRun, MinBytesPerMinute: cfg.MinBytesPerMinute,
 		Location: loc, WarnMinutes: cfg.WarnMinutes, RetentionDays: cfg.RetentionDays, Internet: internet,
 	}, log)
@@ -112,7 +119,7 @@ func run() error {
 	if cfg.Auth.AdminPassword == "" {
 		log.Warn("no admin password configured: the parent UI is open to everyone on the network")
 	}
-	webOpts := web.Options{AdminPassword: cfg.Auth.AdminPassword, SessionSecret: cfg.Auth.SessionSecret, Version: version}
+	webOpts := web.Options{AdminPassword: cfg.Auth.AdminPassword, SessionSecret: cfg.Auth.SessionSecret, Version: version, Notify: hub}
 	var syncer *nintendo.Syncer
 	switch {
 	case *demoMode:
@@ -125,6 +132,7 @@ func run() error {
 		}
 		syncer = nintendo.NewSyncer(st, nintendo.New(cfg.Timezone), box, 10*time.Minute, log)
 		syncer.Location = loc
+		syncer.Notify = hub
 		webOpts.Nintendo = syncer
 	}
 	handler, err := web.New(st, eng, webOpts, log)

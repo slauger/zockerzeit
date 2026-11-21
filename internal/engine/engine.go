@@ -32,9 +32,9 @@ type InternetBlocker interface {
 	SetInternetBlocked(ctx context.Context, mac string, blocked bool) error
 }
 
-// Notifier sends push notifications.
+// Notifier sends push notifications for an event ("warn", "block").
 type Notifier interface {
-	Notify(ctx context.Context, title, message string) error
+	Notify(ctx context.Context, event, title, message string) error
 }
 
 // Options tune the engine.
@@ -655,7 +655,7 @@ func (e *Engine) enforce(ctx context.Context, ds *DeviceState, now time.Time) er
 	}
 	e.event(now, ds.Device, kind, fmt.Sprintf("%s %s: %s", ds.Device.Name, verb, ds.Reason))
 	if want && e.notify != nil {
-		if err := e.notify.Notify(ctx, "Zockerzeit vorbei", fmt.Sprintf("%s wurde gesperrt: %s", ds.Device.Name, ds.Reason)); err != nil {
+		if err := e.notify.Notify(ctx, "block", "Zockerzeit vorbei", fmt.Sprintf("%s wurde gesperrt: %s", ds.Device.Name, ds.Reason)); err != nil {
 			e.log.Warn("notification failed", "err", err)
 		}
 	}
@@ -689,7 +689,7 @@ func (e *Engine) warn(ctx context.Context, v ProfileView, deviceType string, now
 		}
 		e.warned[key] = true
 		msg := fmt.Sprintf("%s: noch %d Minuten %s (bis %s).", v.Profile.Name, left, TypeLabels[deviceType], deadline.Format("15:04"))
-		if err := e.notify.Notify(ctx, "Zockerzeit", msg); err != nil {
+		if err := e.notify.Notify(ctx, "warn", "Zockerzeit", msg); err != nil {
 			e.log.Warn("notification failed", "err", err)
 		}
 		break

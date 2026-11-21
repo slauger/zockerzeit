@@ -18,7 +18,9 @@ import (
 	"github.com/slauger/zockerzeit/internal/demo"
 	"github.com/slauger/zockerzeit/internal/engine"
 	"github.com/slauger/zockerzeit/internal/nintendo"
+	"github.com/slauger/zockerzeit/internal/notify"
 	"github.com/slauger/zockerzeit/internal/rules"
+	"github.com/slauger/zockerzeit/internal/secret"
 	"github.com/slauger/zockerzeit/internal/store"
 )
 
@@ -667,6 +669,78 @@ func TestGamesPage(t *testing.T) {
 	}
 	if _, body := e.get("/spiele?zeitraum=30"); !strings.Contains(body, `value="30" selected`) {
 		t.Fatal("30 days not selected")
+	}
+}
+
+func TestNotifySettings(t *testing.T) {
+	st, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	box, _ := secret.NewBox([]byte("k"), "notify")
+	tg := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"ok":false,"description":"chat not found"}`)
+	}))
+	t.Cleanup(tg.Close)
+	hub := notify.NewHub(st, box, nil, log)
+	eng := engine.New(st, demo.NewController(), hub, engine.Options{Location: berlin}, log)
+	h, err := New(st, eng, Options{Notify: hub}, log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	jar, _ := cookiejar.New(nil)
+	e := &env{t: t, store: st, srv: srv, client: &http.Client{Jar: jar}}
+
+	if _, body := e.get("/einstellungen"); !strings.Contains(body, "Noch kein Kanal") || !strings.Contains(body, "Telegram hinzufügen") {
+		t.Fatal("notification card missing")
+	}
+	if _, body := e.post("/einstellungen/benachrichtigungen", url.Values{"event_start": {"on"}}); !strings.Contains(body, "Benachrichtigungen gespeichert") {
+		t.Fatal("saving events failed")
+	}
+	if !hub.Enabled(notify.EventStart) || hub.Enabled(notify.EventWarn) {
+		t.Fatal("events not stored")
+	}
+	if _, body := e.post("/einstellungen/kanal", url.Values{"kind": {"telegram"}, "token": {"t"}}); !strings.Contains(body, "Chat-ID") {
+		t.Fatal("incomplete channel accepted")
+	}
+	if _, body := e.post("/einstellungen/kanal", url.Values{"kind": {"ntfy"}, "label": {"Handy"}, "url": {tg.URL}}); !strings.Contains(body, "Kanal hinzugefügt") {
+		t.Fatal("adding channel failed")
+	}
+	chans, _ := st.NotifyChannels()
+	if len(chans) != 1 {
+		t.Fatalf("channels: %+v", chans)
+	}
+	id := strconv.FormatInt(chans[0].ID, 10)
+	if _, body := e.post("/einstellungen/kanal/"+id+"/test", nil); !strings.Contains(body, "Testnachricht verschickt") {
+		t.Fatal("test message failed")
+	}
+	if _, body := e.post("/einstellungen/kanal/x/test", nil); !strings.Contains(body, "unbekannter Kanal") {
+		t.Fatal("bad id accepted")
+	}
+	if _, body := e.post("/einstellungen/kanal/"+id+"/entfernen", nil); !strings.Contains(body, "Kanal entfernt") {
+		t.Fatal("removing failed")
+	}
+	if _, body := e.post("/einstellungen/kanal/"+id+"/entfernen", nil); !strings.Contains(body, "banner err") {
+		t.Fatal("removing twice should fail")
+	}
+	if _, body := e.post("/einstellungen/kanal/x/entfernen", nil); !strings.Contains(body, "unbekannter Kanal") {
+		t.Fatal("bad id accepted")
+	}
+
+	// Without the hub the routes refuse.
+	e2 := newEnv(t, "")
+	if _, body := e2.post("/einstellungen/benachrichtigungen", nil); !strings.Contains(body, "nicht eingerichtet") {
+		t.Fatal("events without hub")
+	}
+	if _, body := e2.post("/einstellungen/kanal", nil); !strings.Contains(body, "nicht eingerichtet") {
+		t.Fatal("channel without hub")
+	}
+	if _, body := e2.get("/einstellungen"); strings.Contains(body, "Telegram hinzufügen") {
+		t.Fatal("card shown without hub")
 	}
 }
 

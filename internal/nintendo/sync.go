@@ -25,10 +25,30 @@ type Syncer struct {
 
 	// Location decides which calendar day is today. Defaults to time.Local.
 	Location *time.Location
+	// Notify, if set, is told when a kid starts playing.
+	Notify Notifier
+
+	fresh []fresh // play time that grew during the running sync
 
 	mu       sync.Mutex
 	accounts map[int64]*Account
 }
+
+// Notifier sends a notification for an event.
+type Notifier interface {
+	Notify(ctx context.Context, event, title, message string) error
+}
+
+// fresh is play time that grew since the previous sync.
+type fresh struct {
+	Date, DeviceID, PlayerID string
+	Minutes                  int
+	Games                    []string // application ids that grew
+}
+
+// sessionGap is how long a console has to be quiet before new play time
+// counts as a new start.
+const sessionGap = 35 * time.Minute
 
 // NewSyncer creates a syncer. The box encrypts session tokens at rest.
 func NewSyncer(st *store.Store, client *Client, box *secret.Box, interval time.Duration, log *slog.Logger) *Syncer {
@@ -95,6 +115,9 @@ func (s *Syncer) Remove(id int64) error {
 
 // SyncAll syncs every connected account. Errors are stored per account.
 func (s *Syncer) SyncAll(ctx context.Context) {
+	s.mu.Lock()
+	s.fresh = nil
+	s.mu.Unlock()
 	accounts, err := s.store.NintendoAccounts()
 	if err != nil {
 		s.log.Error("listing Nintendo accounts failed", "err", err)
@@ -110,9 +133,11 @@ func (s *Syncer) SyncAll(ctx context.Context) {
 			s.log.Error("storing Nintendo sync state failed", "err", err)
 		}
 	}
-	if err := Attribute(s.store, s.now(), s.Location); err != nil {
+	now := s.now()
+	if err := Attribute(s.store, now, s.Location); err != nil {
 		s.log.Error("attributing Nintendo play time failed", "err", err)
 	}
+	s.announce(ctx, now)
 	s.cacheImages(ctx)
 }
 
@@ -257,7 +282,14 @@ func (s *Syncer) syncAccount(ctx context.Context, a store.NintendoAccount) error
 			continue
 		}
 		for _, day := range days {
+			before := map[string]store.NintendoUsage{}
+			if old, err := s.store.NintendoUsageOn(day.Date); err == nil {
+				for _, u := range old {
+					before[u.DeviceID+"/"+u.PlayerID] = u
+				}
+			}
 			for _, p := range day.Players {
+				s.noteFresh(before[d.ID+"/"+p.PlayerID], day.Date, d.ID, p)
 				if err := s.store.UpsertNintendoPlayer(store.NintendoPlayer{PlayerID: p.PlayerID, DeviceID: d.ID, Nickname: p.Nickname, ImageURI: p.ImageURI}); err != nil {
 					return err
 				}
@@ -277,4 +309,104 @@ func (s *Syncer) syncAccount(ctx context.Context, a store.NintendoAccount) error
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// noteFresh remembers play time that grew compared to what was stored.
+func (s *Syncer) noteFresh(old store.NintendoUsage, date, deviceID string, p PlayerDay) {
+	if p.Minutes <= old.Minutes {
+		return
+	}
+	f := fresh{Date: date, DeviceID: deviceID, PlayerID: p.PlayerID, Minutes: p.Minutes - old.Minutes}
+	prev := map[string]int{}
+	for _, g := range old.Games {
+		prev[strings.ToUpper(g.ApplicationID)] = g.Minutes
+	}
+	for _, g := range p.Games {
+		if g.Minutes > prev[strings.ToUpper(g.ApplicationID)] {
+			f.Games = append(f.Games, g.ApplicationID)
+		}
+	}
+	s.mu.Lock()
+	s.fresh = append(s.fresh, f)
+	s.mu.Unlock()
+}
+
+// announce notifies when a console that was quiet has new play time today.
+func (s *Syncer) announce(ctx context.Context, now time.Time) {
+	s.mu.Lock()
+	list := s.fresh
+	s.fresh = nil
+	s.mu.Unlock()
+	if s.Notify == nil || len(list) == 0 {
+		return
+	}
+	today := now.In(s.Location).Format("2006-01-02")
+	plays, err := s.store.NintendoPlayBetween(today, today)
+	if err != nil {
+		s.log.Error("reading Nintendo play time failed", "err", err)
+		return
+	}
+	profiles, _ := s.store.Profiles()
+	names := map[string]string{}
+	for _, p := range profiles {
+		names[p.ID] = p.Name
+	}
+	titles, _ := s.store.NintendoTitles()
+	consoles := consoleNames(s.store)
+	announced := map[string]bool{}
+	for _, f := range list {
+		if f.Date != today || announced[f.DeviceID] {
+			continue
+		}
+		kid, running := "", false
+		for _, p := range plays {
+			if p.DeviceID != f.DeviceID || p.Minutes <= 0 {
+				continue
+			}
+			if p.TS.Before(now) && !p.TS.Before(now.Add(-sessionGap)) {
+				running = true
+			}
+			if p.PlayerID == f.PlayerID && !p.TS.Before(now) {
+				kid = names[p.ProfileID]
+			}
+		}
+		if running {
+			continue
+		}
+		if kid == "" {
+			kid = "Jemand"
+		}
+		games := make([]string, 0, len(f.Games))
+		for _, id := range f.Games {
+			if t := titles[strings.ToUpper(id)].Name; t != "" {
+				games = append(games, t)
+			}
+		}
+		what := "spielt"
+		if len(games) > 0 {
+			what = strings.Join(games, ", ")
+		}
+		msg := fmt.Sprintf("%s auf %s, seit der letzten Abfrage %d Min", what, consoles[f.DeviceID], f.Minutes)
+		announced[f.DeviceID] = true
+		if err := s.Notify.Notify(ctx, "start", kid+" spielt", msg); err != nil {
+			s.log.Warn("notification failed", "err", err)
+		}
+	}
+}
+
+// consoleNames maps Nintendo device ids to the name of the managed device,
+// or the Nintendo label.
+func consoleNames(st *store.Store) map[string]string {
+	devices, _ := st.NintendoDevices()
+	managed, _ := st.Devices()
+	out := map[string]string{}
+	for _, d := range devices {
+		out[d.DeviceID] = d.Label
+		for _, m := range managed {
+			if d.DeviceMAC != "" && m.MAC == d.DeviceMAC {
+				out[d.DeviceID] = m.Name
+			}
+		}
+	}
+	return out
 }

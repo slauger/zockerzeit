@@ -847,10 +847,11 @@ type settingsData struct {
 	Internet         bool
 	Nintendo         bool
 	NintendoAccounts []store.NintendoAccount
+	Notify           *notifyData
 }
 
 func (s *Server) settingsPage(w http.ResponseWriter, r *http.Request) {
-	data := settingsData{Settings: s.engine.Settings(), Internet: s.engine.InternetEnabled(), Nintendo: s.opts.Nintendo != nil}
+	data := settingsData{Settings: s.engine.Settings(), Internet: s.engine.InternetEnabled(), Nintendo: s.opts.Nintendo != nil, Notify: s.notifyData()}
 	if data.Nintendo {
 		accounts, err := s.store.NintendoAccounts()
 		if err != nil {

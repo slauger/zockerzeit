@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/slauger/zockerzeit/internal/engine"
+	"github.com/slauger/zockerzeit/internal/notify"
 	"github.com/slauger/zockerzeit/internal/rules"
 	"github.com/slauger/zockerzeit/internal/store"
 )
@@ -58,12 +59,23 @@ type Nintendo interface {
 	SyncAll(ctx context.Context)
 }
 
+// Notify manages notification channels and events. Optional.
+type Notify interface {
+	CanStore() bool
+	HasStatic() bool
+	Enabled(event string) bool
+	SetEnabled(event string, on bool) error
+	Add(kind, label string, c notify.ChannelConfig) error
+	Test(ctx context.Context, id int64) error
+}
+
 // Options configure the web server.
 type Options struct {
 	AdminPassword string
 	SessionSecret string
 	Version       string
 	Nintendo      Nintendo
+	Notify        Notify
 }
 
 // Server is the HTTP handler.
@@ -144,6 +156,10 @@ func (s *Server) routes() {
 	m.Handle("POST /einstellungen/nintendo/spieler", s.auth(s.nintendoMapPlayer))
 	m.Handle("POST /einstellungen/nintendo/{id}/entfernen", s.auth(s.nintendoRemove))
 	m.Handle("POST /einstellungen", s.auth(s.saveSettings))
+	m.Handle("POST /einstellungen/benachrichtigungen", s.auth(s.saveNotifyEvents))
+	m.Handle("POST /einstellungen/kanal", s.auth(s.addNotifyChannel))
+	m.Handle("POST /einstellungen/kanal/{id}/test", s.auth(s.testNotifyChannel))
+	m.Handle("POST /einstellungen/kanal/{id}/entfernen", s.auth(s.removeNotifyChannel))
 	m.Handle("POST /aktion", s.auth(s.action))
 	m.Handle("POST /aktion/{id}/beenden", s.auth(s.endOverride))
 	m.Handle("GET /api/status", s.auth(s.statusAPI))

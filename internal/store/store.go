@@ -263,6 +263,12 @@ var migrations = []string{
 	);
 	CREATE INDEX nintendo_play_key ON nintendo_play (date, device_id, player_id);
 	CREATE INDEX nintendo_play_profile ON nintendo_play (profile_id, date);`,
+	`CREATE TABLE notify_channels (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		kind TEXT NOT NULL,
+		label TEXT NOT NULL,
+		config TEXT NOT NULL
+	);`,
 }
 
 // Open opens (and migrates) the database at path. Use ":memory:" for tests.

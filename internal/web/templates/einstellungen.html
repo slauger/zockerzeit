@@ -54,5 +54,68 @@
   {{end}}
 </section>
 </div>
+{{with .Notify}}
+<div class="settings">
+<section class="card" id="benachrichtigungen">
+  <h2>Benachrichtigungen</h2>
+  <p class="muted">Kurze Nachrichten aufs Handy. Wann, stellst du hier ein, wohin, mit den Kanälen darunter.</p>
+  <form method="post" action="/einstellungen/benachrichtigungen" class="notify-events">
+    {{range .Events}}
+    <label class="switch">
+      <input type="checkbox" name="event_{{.Key}}" role="switch" {{if .On}}checked{{end}}>
+      <span class="switch-track" aria-hidden="true"></span>
+      <span>{{.Label}}</span>
+    </label>
+    {{end}}
+    <div class="form-actions"><button class="primary">Speichern</button></div>
+  </form>
+
+  <h3>Kanäle</h3>
+  {{if .Static}}<p class="muted small">Dazu kommt der ntfy-Kanal aus der Konfiguration.</p>{{end}}
+  {{if .Channels}}
+  <ul class="channel-list">
+    {{range .Channels}}
+    <li>
+      <span><strong>{{.Label}}</strong> <span class="muted">{{if eq .Kind "telegram"}}Telegram{{else}}ntfy{{end}}</span></span>
+      <span class="buttons">
+        <form method="post" action="/einstellungen/kanal/{{.ID}}/test"><button>Test senden</button></form>
+        <form method="post" action="/einstellungen/kanal/{{.ID}}/entfernen" onsubmit="return confirm('Kanal {{.Label}} entfernen?')"><button class="link danger-text">Entfernen</button></form>
+      </span>
+    </li>
+    {{end}}
+  </ul>
+  {{else if not .Static}}
+  <p class="muted">Noch kein Kanal eingerichtet.</p>
+  {{end}}
+
+  {{if .CanStore}}
+  <details class="manual">
+    <summary>Telegram hinzufügen</summary>
+    <p class="muted">Bei <code>@BotFather</code> einen Bot anlegen und das Token kopieren. Dem Bot einmal schreiben, dann zeigt <code>https://api.telegram.org/bot&lt;Token&gt;/getUpdates</code> die Chat-ID. Für eine Gruppe den Bot in die Gruppe holen.</p>
+    <form method="post" action="/einstellungen/kanal" class="connect-form">
+      <input type="hidden" name="kind" value="telegram">
+      <label>Name <input name="label" placeholder="z. B. Telegram Papa"></label>
+      <label>Bot-Token <input name="token" required autocomplete="off"></label>
+      <label>Chat-ID <input name="chat_id" required autocomplete="off"></label>
+      <button class="primary">Hinzufügen</button>
+    </form>
+  </details>
+  <details class="manual">
+    <summary>ntfy hinzufügen</summary>
+    <p class="muted">Die ntfy-App installieren, ein Thema mit schwer erratbarem Namen abonnieren und die Adresse hier eintragen.</p>
+    <form method="post" action="/einstellungen/kanal" class="connect-form">
+      <input type="hidden" name="kind" value="ntfy">
+      <label>Name <input name="label" placeholder="z. B. ntfy Handy"></label>
+      <label>Adresse <input name="url" type="url" placeholder="https://ntfy.sh/mein-thema" required></label>
+      <label>Zugangstoken (optional) <input name="token" autocomplete="off"></label>
+      <button class="primary">Hinzufügen</button>
+    </form>
+  </details>
+  {{else}}
+  <p class="muted">Eigene Kanäle brauchen ein festes <code>ZOCKERZEIT_SESSION_SECRET</code>, mit dem die Tokens verschlüsselt werden.</p>
+  {{end}}
+</section>
+</div>
+{{end}}
 {{end}}
 {{end}}
