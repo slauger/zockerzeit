@@ -1,5 +1,5 @@
-// Package web serves the parent dashboard, the kid view and the JSON API
-// used by the charts.
+// Package web serves the parent dashboard, the kid app and the JSON API used
+// by the charts.
 package web
 
 import (
@@ -15,7 +15,6 @@ import (
 	"html/template"
 	"io/fs"
 	"log/slog"
-	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -42,13 +41,9 @@ type Engine interface {
 	Tick(ctx context.Context) error
 	Snapshot() engine.Snapshot
 	Evaluate() ([]engine.ProfileView, error)
-	Release(ctx context.Context, mac string) error
+	Consoles() ([]engine.Console, error)
 	Now() time.Time
 	Location() *time.Location
-	DryRun() bool
-	InternetEnabled() bool
-	Settings() engine.Settings
-	SaveSettings(engine.Settings) error
 }
 
 // Nintendo connects Nintendo parental controls accounts. Optional.
@@ -110,7 +105,7 @@ func New(st *store.Store, eng Engine, opts Options, log *slog.Logger) (*Server, 
 			return nil, err
 		}
 	}
-	for _, page := range []string{"dashboard", "verlauf", "regeln", "geraete", "geraet", "protokoll", "einstellungen", "nintendo", "spiele", "login", "kind"} {
+	for _, page := range []string{"dashboard", "verlauf", "regeln", "konsolen", "protokoll", "einstellungen", "nintendo", "spiele", "login", "kind"} {
 		t, err := template.New(page).Funcs(funcs(eng.Location())).ParseFS(templateFS, "templates/layout.html", "templates/"+page+".html")
 		if err != nil {
 			return nil, fmt.Errorf("template %s: %w", page, err)
@@ -141,10 +136,8 @@ func (s *Server) routes() {
 	m.Handle("GET /regeln", s.auth(s.rulesPage))
 	m.Handle("POST /regeln", s.auth(s.saveProfile))
 	m.Handle("POST /regeln/{id}/loeschen", s.auth(s.deleteProfile))
-	m.Handle("GET /geraete", s.auth(s.devicesPage))
-	m.Handle("POST /geraete", s.auth(s.saveDevice))
-	m.Handle("POST /geraete/{mac}/loeschen", s.auth(s.deleteDevice))
-	m.Handle("GET /geraet/{mac}", s.auth(s.deviceDetail))
+	m.Handle("GET /konsolen", s.auth(s.consolesPage))
+	m.Handle("POST /konsolen/{id}", s.auth(s.saveConsole))
 	m.Handle("GET /protokoll", s.auth(s.eventsPage))
 	m.Handle("GET /einstellungen", s.auth(s.settingsPage))
 	m.Handle("GET /bild/{key}", s.auth(s.image))
@@ -153,10 +146,7 @@ func (s *Server) routes() {
 	m.Handle("POST /einstellungen/nintendo/login", s.auth(s.nintendoLogin))
 	m.Handle("POST /einstellungen/nintendo/verbinden", s.auth(s.nintendoConnect))
 	m.Handle("POST /einstellungen/nintendo/sync", s.auth(s.nintendoSync))
-	m.Handle("POST /einstellungen/nintendo/konsole", s.auth(s.nintendoMapDevice))
-	m.Handle("POST /einstellungen/nintendo/spieler", s.auth(s.nintendoMapPlayer))
 	m.Handle("POST /einstellungen/nintendo/{id}/entfernen", s.auth(s.nintendoRemove))
-	m.Handle("POST /einstellungen", s.auth(s.saveSettings))
 	m.Handle("POST /einstellungen/benachrichtigungen", s.auth(s.saveNotifyEvents))
 	m.Handle("POST /einstellungen/kanal", s.auth(s.addNotifyChannel))
 	m.Handle("POST /einstellungen/kanal/{id}/test", s.auth(s.testNotifyChannel))
@@ -258,7 +248,6 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 type page struct {
 	Title   string
 	Nav     string
-	DryRun  bool
 	Auth    bool
 	Version string
 	Flash   string
@@ -268,11 +257,11 @@ type page struct {
 
 func (s *Server) render(w http.ResponseWriter, r *http.Request, name, title string, data any) {
 	p := page{
-		Title: title, Nav: name, DryRun: s.engine.DryRun(), Auth: s.opts.AdminPassword != "",
+		Title: title, Nav: name, Auth: s.opts.AdminPassword != "",
 		Version: s.opts.Version, Flash: r.URL.Query().Get("ok"), Error: r.URL.Query().Get("fehler"), Data: data,
 	}
 	if snap := s.engine.Snapshot(); snap.Error != "" && p.Error == "" && name != "kind" && name != "login" {
-		p.Error = "Letzte Abfrage fehlgeschlagen: " + snap.Error
+		p.Error = "Letzte Auswertung fehlgeschlagen: " + snap.Error
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := s.pages[name].ExecuteTemplate(w, "layout", p); err != nil {
@@ -281,17 +270,27 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, name, title stri
 }
 
 func redirect(w http.ResponseWriter, r *http.Request, to, flash string) {
+	http.Redirect(w, r, withQuery(to, "ok", flash), http.StatusSeeOther)
+}
+
+// withQuery adds a query parameter to a local URL, before its fragment.
+func withQuery(to, key, value string) string {
+	path, frag, hasFrag := strings.Cut(to, "#")
 	sep := "?"
-	if strings.Contains(to, "?") {
+	if strings.Contains(path, "?") {
 		sep = "&"
 	}
-	http.Redirect(w, r, to+sep+"ok="+url.QueryEscape(flash), http.StatusSeeOther)
+	out := path + sep + key + "=" + url.QueryEscape(value)
+	if hasFrag {
+		out += "#" + frag
+	}
+	return out
 }
 
 func urlQuery(v string) string { return url.QueryEscape(v) }
 
 func redirectErr(w http.ResponseWriter, r *http.Request, to string, err error) {
-	http.Redirect(w, r, to+"?fehler="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+	http.Redirect(w, r, withQuery(to, "fehler", err.Error()), http.StatusSeeOther)
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
@@ -326,47 +325,23 @@ func funcs(loc *time.Location) template.FuncMap {
 			}
 			return t.In(loc).Format("02.01.2006")
 		},
-		"pct": func(used time.Duration, limit int) int {
-			if limit <= 0 {
-				return 0
-			}
-			p := int(math.Round(used.Minutes() / float64(limit) * 100))
-			return min(p, 100)
-		},
 		"remaining": func(st rules.Status) string {
 			if st.Remaining < 0 {
 				return "unbegrenzt"
 			}
 			return formatDuration(st.Remaining)
 		},
-		"windows":     rules.FormatWindows,
-		"cells":       energyCells,
-		"slots":       slots,
-		"deviceTypes": func() []string { return store.DeviceTypes },
-		"list":        func(v ...int) []int { return v },
-		"sub":         func(a, b time.Time) time.Duration { return a.Sub(b) },
-		"dayPct": func(t time.Time) float64 {
-			t = t.In(loc)
-			return float64(t.Hour()*60+t.Minute()) / 1440 * 100
-		},
-		"spanPct": func(a, b time.Time) float64 {
-			return max(b.Sub(a).Minutes()/1440*100, 0.4)
-		},
+		"windows": rules.FormatWindows,
+		"cells":   energyCells,
+		"slots":   slots,
+		"list":    func(v ...int) []int { return v },
 		"eventLabel": func(kind string) string {
 			if l, ok := eventLabels[kind]; ok {
 				return l
 			}
 			return kind
 		},
-		"dict": func(kv ...any) map[string]any {
-			m := make(map[string]any, len(kv)/2)
-			for i := 0; i+1 < len(kv); i += 2 {
-				m[fmt.Sprint(kv[i])] = kv[i+1]
-			}
-			return m
-		},
-		"typeLabel": func(t string) string { return engine.TypeLabels[t] },
-		"minutes":   func(m int) time.Duration { return time.Duration(m) * time.Minute },
+		"minutes": func(m int) time.Duration { return time.Duration(m) * time.Minute },
 		"initial": func(name string) string {
 			for _, r := range name {
 				return strings.ToUpper(string(r))
@@ -377,24 +352,14 @@ func funcs(loc *time.Location) template.FuncMap {
 			t = t.In(loc)
 			return fmt.Sprintf("%s, %d. %s", weekdayLong[t.Weekday()], t.Day(), monthLong[t.Month()-1])
 		},
-		"quotaLeft": func(st rules.Status) time.Duration {
-			if st.LimitToday <= 0 {
-				return 0
-			}
-			return max(time.Duration(st.LimitToday)*time.Minute-st.UsedToday, 0)
-		},
 		"weekday": func(d time.Weekday) string { return rules.WeekdayNames[d] },
-		"kindLabel": func(k string) string {
-			return map[string]string{
-				store.KindLock: "Sperre", store.KindAllow: "Freigabe", store.KindBonus: "Bonus", store.KindRelease: "Gerätefreigabe",
-			}[k]
-		},
 	}
 }
 
+// eventLabels also names kinds that only older entries have.
 var eventLabels = map[string]string{
-	"block": "gesperrt", "unblock": "entsperrt", "dryrun": "Testmodus", "error": "Fehler",
-	"online": "online", "offline": "offline", "roam": "AP-Wechsel", "parent": "Eltern", "config": "Einstellung",
+	"over": "Zeit um", "parent": "Eltern", "config": "Einstellung", "error": "Fehler",
+	"block": "gesperrt", "unblock": "entsperrt", "dryrun": "Testmodus", "online": "online", "offline": "offline", "roam": "AP-Wechsel",
 }
 
 var weekdayLong = map[time.Weekday]string{

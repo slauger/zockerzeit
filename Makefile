@@ -13,7 +13,7 @@ build: ## Build the binary.
 run: build ## Run with config.yaml.
 	./bin/$(BINARY) -config config.yaml
 
-demo: build ## Run with a simulated UniFi controller and sample data.
+demo: build ## Run with sample data instead of a Nintendo account.
 	./bin/$(BINARY) -demo
 
 test: ## Run tests with race detector.
@@ -46,7 +46,7 @@ helm-lint: ## Lint the Helm chart.
 	helm lint charts/$(BINARY)
 
 helm-template: ## Render the Helm chart.
-	helm template test charts/$(BINARY) --set config.unifi.url=https://unifi:8443 > /dev/null
+	helm template test charts/$(BINARY) > /dev/null
 
 helm-unittest: ## Run Helm unit tests.
 	helm unittest charts/$(BINARY)

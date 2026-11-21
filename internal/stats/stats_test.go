@@ -7,89 +7,50 @@ import (
 	"github.com/slauger/zockerzeit/internal/store"
 )
 
-var loc, _ = time.LoadLocation("Europe/Berlin")
+var berlin, _ = time.LoadLocation("Europe/Berlin")
 
-func sample(day, hh, mm int, mac, ap string, active bool) store.Sample {
-	return store.Sample{
-		TS: time.Date(2026, 11, day, hh, mm, 0, 0, loc), MAC: mac, ProfileID: "max",
-		Seconds: 60, Active: active, APName: ap,
+func plays() []store.NintendoPlay {
+	at := func(d, h int) time.Time { return time.Date(2026, 11, d, h, 0, 0, 0, berlin) }
+	return []store.NintendoPlay{
+		{TS: at(16, 15), Date: "2026-11-16", DeviceID: "D1", Minutes: 30},
+		{TS: at(16, 16), Date: "2026-11-16", DeviceID: "D2", Minutes: 10},
+		{TS: at(17, 15), Date: "2026-11-17", DeviceID: "D1", Minutes: 20},
+		// Nintendo corrected the day downwards.
+		{TS: at(17, 18), Date: "2026-11-17", DeviceID: "D1", Minutes: -5},
+		{TS: at(1, 12), Date: "2026-11-01", DeviceID: "D1", Minutes: 99},
 	}
 }
-
-func fixture() []store.Sample {
-	var out []store.Sample
-	// Wed 18.11.: switch 15:00-15:09 in the living room, iPhone 15:05-15:09 in parallel
-	for m := 1; m <= 10; m++ {
-		out = append(out, sample(18, 15, m, "sw", "AP Wohnzimmer", true))
-		out = append(out, sample(18, 15, m, "ip", "AP Kinderzimmer", m > 5))
-	}
-	// Thu 19.11.: switch 16:00-16:04 and again 16:30-16:31
-	for m := 1; m <= 5; m++ {
-		out = append(out, sample(19, 16, m, "sw", "", true))
-	}
-	out = append(out, sample(19, 16, 31, "sw", "AP Wohnzimmer", true))
-	return out
-}
-
-var names = map[string]string{"sw": "Switch", "ip": "iPhone"}
 
 func TestDailyMinutes(t *testing.T) {
-	from := time.Date(2026, 11, 17, 0, 0, 0, 0, loc)
-	d := DailyMinutes(fixture(), from, 3, names)
-	if len(d.Labels) != 3 || d.Labels[0] != "Di 17.11." || d.Labels[1] != "Mi 18.11." {
+	from := time.Date(2026, 11, 16, 0, 0, 0, 0, berlin)
+	d := DailyMinutes(plays(), from, 3, map[string]string{"D1": "Switch Max"})
+	if len(d.Labels) != 3 || d.Labels[0] != "Mo 16.11." || d.Labels[2] != "Mi 18.11." {
 		t.Fatalf("labels = %v", d.Labels)
 	}
-	if len(d.Series) != 2 || d.Series[0].Name != "Switch" || d.Series[1].Name != "iPhone" {
-		t.Fatalf("series = %+v", d.Series)
-	}
-	if d.Series[0].Data[1] != 10 || d.Series[0].Data[2] != 6 || d.Series[1].Data[1] != 5 {
-		t.Fatalf("data = %+v", d.Series)
-	}
-	if d.Total[1] != 10 || d.Total[2] != 6 || d.Total[0] != 0 {
+	if d.Total[0] != 40 || d.Total[1] != 15 || d.Total[2] != 0 {
 		t.Fatalf("total = %v", d.Total)
 	}
-	// Samples outside the range are ignored.
-	d = DailyMinutes(fixture(), from.AddDate(0, 0, 5), 2, names)
-	if len(d.Series) != 0 {
-		t.Fatalf("expected no series, got %+v", d.Series)
+	if len(d.Series) != 2 || d.Series[0].Name != "D2" || d.Series[1].Name != "Switch Max" || d.Series[1].Data[1] != 15 {
+		t.Fatalf("series = %+v", d.Series)
 	}
 }
 
 func TestHeatmap(t *testing.T) {
-	h := Heatmap(fixture(), 1)
-	if h[2][15] != 10 || h[3][16] != 6 {
-		t.Fatalf("unexpected heatmap: wed15=%v thu16=%v", h[2][15], h[3][16])
+	hm := Heatmap(plays(), berlin, 2)
+	if hm[0][15] != 15 || hm[0][16] != 5 || hm[1][15] != 10 || hm[6][12] != 49.5 {
+		t.Fatalf("heatmap = %v %v %v %v", hm[0][15], hm[0][16], hm[1][15], hm[6][12])
 	}
-	h = Heatmap(fixture(), 2)
-	if h[2][15] != 5 {
-		t.Fatalf("average over 2 weeks = %v", h[2][15])
-	}
-}
-
-func TestLocationsAndDevices(t *testing.T) {
-	l := Locations(fixture())
-	if len(l) != 3 || l[0].Name != "AP Wohnzimmer" || l[0].Minutes != 11 {
-		t.Fatalf("locations = %+v", l)
-	}
-	d := Devices(fixture(), names)
-	if len(d) != 2 || d[0].Name != "Switch" || d[0].Minutes != 16 || d[1].Minutes != 5 {
-		t.Fatalf("devices = %+v", d)
+	if hm[1][18] != 0 {
+		t.Fatalf("negative cell = %v", hm[1][18])
 	}
 }
 
-func TestSessions(t *testing.T) {
-	s := Sessions(fixture(), map[string]string{}, 2*time.Minute)
-	if len(s) != 4 {
-		t.Fatalf("expected 4 sessions, got %+v", s)
+func TestConsoles(t *testing.T) {
+	c := Consoles(plays(), map[string]string{"D2": "Switch Mia"})
+	if len(c) != 2 || c[0].Name != "D1" || c[0].Minutes != 144 || c[1].Name != "Switch Mia" {
+		t.Fatalf("consoles = %+v", c)
 	}
-	first := s[0]
-	if first.Device != "sw" || !first.Start.Equal(time.Date(2026, 11, 18, 15, 0, 0, 0, loc)) || !first.End.Equal(time.Date(2026, 11, 18, 15, 10, 0, 0, loc)) {
-		t.Fatalf("first session = %+v", first)
-	}
-}
-
-func TestGermanWeekday(t *testing.T) {
-	if germanWeekday("x") != "x" || germanWeekday("Foo 1") != "Foo 1" {
-		t.Fatal("unexpected passthrough")
+	if c := Consoles([]store.NintendoPlay{{DeviceID: "D1", Minutes: -3}}, nil); len(c) != 0 {
+		t.Fatalf("negative console = %+v", c)
 	}
 }

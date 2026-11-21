@@ -1,11 +1,11 @@
 # zockerzeit
 
 ![Version: 0.0.0](https://img.shields.io/badge/Version-0.0.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.0.0](https://img.shields.io/badge/AppVersion-0.0.0-informational?style=flat-square)
-Play time dashboard for parents with Nintendo Switch play time, UniFi presence and optional blocking
+Play time dashboard for parents based on the Nintendo Switch parental controls
 
 ## Overview
 
-Deploys Zockerzeit next to a UniFi Network Application. Zockerzeit polls the controller, records play time per device and blocks devices on the WLAN when the agreed play time is used up.
+Deploys Zockerzeit, a play time dashboard for parents. It fetches the play time per console and game from the Nintendo Switch parental controls, counts it per kid against the time windows and limits, and notifies when the time is almost up.
 
 Only a single replica is supported because the data lives in SQLite on a persistent volume.
 
@@ -14,11 +14,10 @@ Only a single replica is supported because the data lives in SQLite on a persist
 ```bash
 helm install zockerzeit oci://ghcr.io/slauger/charts/zockerzeit \
   --namespace zockerzeit --create-namespace \
-  --set config.unifi.url=https://unifi.unifi.svc.cluster.local:8443 \
   --set secret.existingSecret=zockerzeit
 ```
 
-The secret must contain `ZOCKERZEIT_UNIFI_USERNAME` and `ZOCKERZEIT_UNIFI_PASSWORD` (or `ZOCKERZEIT_UNIFI_API_KEY`), `ZOCKERZEIT_ADMIN_PASSWORD` and `ZOCKERZEIT_SESSION_SECRET`.
+The secret must contain `ZOCKERZEIT_ADMIN_PASSWORD` and `ZOCKERZEIT_SESSION_SECRET`, optionally `ZOCKERZEIT_NTFY_TOKEN`.
 
 ## Maintainers
 
@@ -37,17 +36,8 @@ Kubernetes: `>=1.22.0-0`
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | affinity | object | `{}` | Affinity and anti-affinity rules |
-| config.dryRun | bool | `true` | Test mode: record and log, but never block. Disable once the history looks right. |
-| config.fritzbox.url | string | `""` | TR-064 URL of the FRITZ!Box, e.g. http://192.168.178.1:49000. Enables "internet only" blocking (optional) |
-| config.minBytesPerMinute | int | `150000` | Traffic threshold per minute for devices in traffic mode (phones) |
 | config.notify.ntfyURL | string | `""` | ntfy topic URL for push notifications (optional) |
-| config.pollInterval | string | `"60s"` | How often the UniFi controller is polled |
-| config.retentionDays | int | `400` | Days of usage history to keep |
 | config.timezone | string | `"Europe/Berlin"` | Time zone used for schedules and statistics |
-| config.unifi.insecureSkipVerify | bool | `true` | Skip TLS verification (self-signed controller certificate) |
-| config.unifi.site | string | `"default"` | UniFi site name |
-| config.unifi.unifiOS | bool | `false` | Set to true for UniFi OS consoles (UDM, UCG, Cloud Key Gen2+) |
-| config.unifi.url | string | `""` | URL of the UniFi Network Application, e.g. https://unifi.unifi.svc.cluster.local:8443 |
 | config.warnMinutes | list | `[10,5]` | Remaining minutes at which a push warning is sent |
 | extraContainers | list | `[]` | Additional sidecar containers |
 | extraEnv | object | `{}` | Additional environment variables as key-value pairs |
@@ -85,13 +75,8 @@ Kubernetes: `>=1.22.0-0`
 | resources | object | `{"limits":{"memory":"128Mi"},"requests":{"cpu":"10m","memory":"32Mi"}}` | Container resource requests and limits |
 | secret.adminPassword | string | `""` | Password for the parent web UI |
 | secret.existingSecret | string | `""` | Name of an existing secret with the keys listed above |
-| secret.fritzboxPassword | string | `""` | FRITZ!Box password (optional) |
-| secret.fritzboxUsername | string | `""` | FRITZ!Box user with the right "FRITZ!Box Einstellungen" (optional) |
 | secret.ntfyToken | string | `""` | ntfy access token (optional) |
-| secret.sessionSecret | string | `""` | Secret used to sign session cookies (random if empty, sessions then end on restart) |
-| secret.unifiApiKey | string | `""` | UniFi API key (alternative to username/password) |
-| secret.unifiPassword | string | `""` | UniFi password |
-| secret.unifiUsername | string | `""` | UniFi username (local controller account) |
+| secret.sessionSecret | string | `""` | Signs session cookies and encrypts the Nintendo tokens and notification channels. Required for Nintendo; keep it stable |
 | securityContext | object | `{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]},"readOnlyRootFilesystem":true}` | Container security context |
 | service.annotations | object | `{}` | Service annotations |
 | service.labels | object | `{}` | Service labels |

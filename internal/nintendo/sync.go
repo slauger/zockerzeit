@@ -143,9 +143,8 @@ func (s *Syncer) SyncAll(ctx context.Context) {
 
 // Attribute assigns play time that arrived since the last sync to a kid:
 // today to whoever has the console right now ("ist jetzt bei"), otherwise
-// to the kid the console belongs to. Consoles without a managed device fall
-// back to the kid the Nintendo user is mapped to; time nobody can be found
-// for stays open until a mapping exists.
+// to the kid the console belongs to. Time on consoles without an owner
+// stays open until one is set.
 func Attribute(st *store.Store, now time.Time, loc *time.Location) error {
 	open, err := st.NintendoUnattributed()
 	if err != nil || len(open) == 0 {
@@ -155,46 +154,26 @@ func Attribute(st *store.Store, now time.Time, loc *time.Location) error {
 	if err != nil {
 		return err
 	}
-	managed, err := st.Devices()
-	if err != nil {
-		return err
-	}
-	players, err := st.NintendoPlayers()
-	if err != nil {
-		return err
-	}
 	ovs, err := st.ActiveOverrides(now, loc)
 	if err != nil {
 		return err
 	}
-	macOf := map[string]string{}
-	for _, c := range consoles {
-		macOf[c.DeviceID] = c.DeviceMAC
-	}
 	owner := map[string]string{}
-	for _, d := range managed {
-		owner[d.MAC] = d.ProfileID
+	for _, c := range consoles {
+		owner[c.DeviceID] = c.ProfileID
 	}
 	borrowed := map[string]string{}
 	for _, o := range ovs {
-		if o.Kind == store.KindRelease && o.DeviceMAC != "" {
-			borrowed[o.DeviceMAC] = o.ProfileID
+		if o.Kind == store.KindRelease && o.DeviceID != "" {
+			borrowed[o.DeviceID] = o.ProfileID
 		}
-	}
-	mapped := map[string]string{}
-	for _, p := range players {
-		mapped[p.DeviceID+"/"+p.PlayerID] = p.ProfileID
 	}
 	today := now.In(loc).Format("2006-01-02")
 	plays := make([]store.NintendoPlay, 0, len(open))
 	for _, u := range open {
-		mac := macOf[u.DeviceID]
-		profile := owner[mac]
-		if b := borrowed[mac]; b != "" && u.Date == today {
+		profile := owner[u.DeviceID]
+		if b := borrowed[u.DeviceID]; b != "" && u.Date == today {
 			profile = b
-		}
-		if mac == "" || profile == "" {
-			profile = mapped[u.DeviceID+"/"+u.PlayerID]
 		}
 		if profile == "" {
 			continue
@@ -394,19 +373,12 @@ func (s *Syncer) announce(ctx context.Context, now time.Time) {
 	}
 }
 
-// consoleNames maps Nintendo device ids to the name of the managed device,
-// or the Nintendo label.
+// consoleNames maps Nintendo device ids to the console names.
 func consoleNames(st *store.Store) map[string]string {
 	devices, _ := st.NintendoDevices()
-	managed, _ := st.Devices()
 	out := map[string]string{}
 	for _, d := range devices {
-		out[d.DeviceID] = d.Label
-		for _, m := range managed {
-			if d.DeviceMAC != "" && m.MAC == d.DeviceMAC {
-				out[d.DeviceID] = m.Name
-			}
-		}
+		out[d.DeviceID] = d.Name
 	}
 	return out
 }

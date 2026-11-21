@@ -3,17 +3,7 @@ templates:
   - deployment.yaml
   - configmap.yaml
   - secret.yaml
-set:
-  config.unifi.url: https://unifi.unifi.svc.cluster.local:8443
 tests:
-  - it: fails without a UniFi URL
-    template: deployment.yaml
-    set:
-      config.unifi.url: ""
-    asserts:
-      - failedTemplate:
-          errorMessage: config.unifi.url is required
-
   - it: runs a single replica with Recreate strategy
     template: deployment.yaml
     asserts:
@@ -107,30 +97,25 @@ tests:
           pattern: "database: /data/zockerzeit.db"
       - matchRegex:
           path: data["config.yaml"]
-          pattern: "url: https://unifi.unifi.svc.cluster.local:8443"
-      - matchRegex:
+          pattern: "timezone: Europe/Berlin"
+      - notMatchRegex:
           path: data["config.yaml"]
-          pattern: "dryRun: true"
+          pattern: "unifi"
 
   - it: stores credentials as environment keys
     template: secret.yaml
     set:
-      secret.unifiUsername: zockerzeit
-      secret.unifiPassword: pw
       secret.adminPassword: admin
-      secret.fritzboxUsername: zockerzeit
+      secret.sessionSecret: s3cret
     asserts:
-      - equal:
-          path: stringData.ZOCKERZEIT_FRITZBOX_USERNAME
-          value: zockerzeit
-      - equal:
-          path: stringData.ZOCKERZEIT_UNIFI_USERNAME
-          value: zockerzeit
       - equal:
           path: stringData.ZOCKERZEIT_ADMIN_PASSWORD
           value: admin
+      - equal:
+          path: stringData.ZOCKERZEIT_SESSION_SECRET
+          value: s3cret
       - notExists:
-          path: stringData.ZOCKERZEIT_UNIFI_API_KEY
+          path: stringData.ZOCKERZEIT_NTFY_TOKEN
 
   - it: skips the secret when an existing one is used
     template: secret.yaml

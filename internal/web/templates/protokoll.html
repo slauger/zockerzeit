@@ -5,8 +5,7 @@
 </div>
 <nav class="filter-tabs" aria-label="Filter">
   <a href="/protokoll" {{if eq .Filter ""}}aria-current="page"{{end}}>Alles</a>
-  <a href="/protokoll?art=online" {{if eq .Filter "online"}}aria-current="page"{{end}}>Online und offline</a>
-  <a href="/protokoll?art=sperren" {{if eq .Filter "sperren"}}aria-current="page"{{end}}>Sperren</a>
+  <a href="/protokoll?art=zeit" {{if eq .Filter "zeit"}}aria-current="page"{{end}}>Zeit um</a>
   <a href="/protokoll?art=eltern" {{if eq .Filter "eltern"}}aria-current="page"{{end}}>Eltern</a>
 </nav>
 <section class="card">

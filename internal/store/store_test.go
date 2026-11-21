@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -45,12 +46,11 @@ func TestOpenFileAndReopen(t *testing.T) {
 	}
 }
 
-func TestProfilesAndDevices(t *testing.T) {
+func TestProfiles(t *testing.T) {
 	s := newStore(t)
 	p := Profile{
 		ID: "max", Name: "Max",
-		Console: RuleSet{DailyMinutes: 90, WeeklyMinutes: 480, Schedule: rules.Schedule{time.Monday: {{Start: 900, End: 1080}}}},
-		Phone:   RuleSet{DailyMinutes: 30, Schedule: rules.Schedule{time.Sunday: {{Start: 420, End: 1230}}}},
+		Rules: RuleSet{DailyMinutes: 90, WeeklyMinutes: 480, Schedule: rules.Schedule{time.Monday: {{Start: 900, End: 1080}}}},
 	}
 	if err := s.SaveProfile(p); err != nil {
 		t.Fatal(err)
@@ -58,7 +58,7 @@ func TestProfilesAndDevices(t *testing.T) {
 	if err := s.SaveProfile(Profile{ID: "mia", Name: "Mia"}); err != nil {
 		t.Fatal(err)
 	}
-	p.Console.DailyMinutes = 60
+	p.Rules.DailyMinutes = 60
 	if err := s.SaveProfile(p); err != nil {
 		t.Fatal(err)
 	}
@@ -66,11 +66,8 @@ func TestProfilesAndDevices(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Console.DailyMinutes != 60 || len(got.Console.Schedule[time.Monday]) != 1 || got.Console.Schedule[time.Monday][0].End != 1080 {
+	if got.Rules.Limits().DailyMinutes != 60 || got.Rules.WeeklyMinutes != 480 || got.Rules.Schedule[time.Monday][0].End != 1080 {
 		t.Fatalf("unexpected profile: %+v", got)
-	}
-	if got.Rules(TypeConsole).Limits().DailyMinutes != 60 || got.Rules(TypePhone).DailyMinutes != 30 || len(got.Phone.Schedule[time.Sunday]) != 1 {
-		t.Fatalf("rules mismatch: %+v", got)
 	}
 	all, _ := s.Profiles()
 	if len(all) != 2 || all[0].ID != "max" {
@@ -80,97 +77,36 @@ func TestProfilesAndDevices(t *testing.T) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 
-	if err := s.SaveDevice(Device{MAC: "aa:00", Name: "Switch", ProfileID: "max", Shared: true}); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.SaveDevice(Device{MAC: "aa:01", Name: "iPhone", ProfileID: "max", Mode: ModeTraffic, Blocker: BlockInternet}); err != nil {
-		t.Fatal(err)
-	}
-	devs, _ := s.Devices()
-	if len(devs) != 2 || devs[1].Mode != ModeOnline || !devs[1].Shared || devs[0].Mode != ModeTraffic ||
-		devs[0].Type() != TypePhone || devs[1].Type() != TypeConsole ||
-		devs[0].Blocker != BlockInternet || devs[1].Blocker != BlockWLAN {
-		t.Fatalf("unexpected devices: %+v", devs)
-	}
-	if err := s.DeleteDevice("aa:01"); err != nil {
+	// Deleting a kid leaves its consoles without an owner.
+	if err := s.UpsertNintendoDevice(NintendoDevice{DeviceID: "D1", Label: "Switch", ProfileID: "max"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.DeleteProfile("max"); err != nil {
 		t.Fatal(err)
 	}
-	devs, _ = s.Devices()
-	if len(devs) != 0 {
-		t.Fatalf("devices of deleted profile remain: %+v", devs)
-	}
-}
-
-func TestUsageCountsParallelMinutesOnce(t *testing.T) {
-	s := newStore(t)
-	base := time.Date(2026, 11, 18, 15, 0, 0, 0, time.UTC)
-	samples := make([]Sample, 0, 40)
-	for i := range 10 {
-		ts := base.Add(time.Duration(i) * time.Minute)
-		samples = append(samples,
-			Sample{TS: ts, MAC: "switch", ProfileID: "max", Seconds: 60, Active: true, APName: "AP Wohnzimmer"},
-			Sample{TS: ts, MAC: "switch3", ProfileID: "max", Seconds: 60, Active: i < 5},
-			Sample{TS: ts, MAC: "iphone", ProfileID: "max", Type: TypePhone, Seconds: 60, Active: i < 3},
-			Sample{TS: ts, MAC: "switch2", ProfileID: "mia", Seconds: 60, Active: true},
-		)
-	}
-	if err := s.AddSamples(samples); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.AddSamples(nil); err != nil {
-		t.Fatal(err)
-	}
-	u, err := s.Usage("max", TypeConsole, base, base.Add(time.Hour))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if u != 10*time.Minute {
-		t.Fatalf("usage = %v, want 10m", u)
-	}
-	u, _ = s.Usage("max", TypeConsole, base.Add(5*time.Minute), base.Add(time.Hour))
-	if u != 5*time.Minute {
-		t.Fatalf("partial usage = %v", u)
-	}
-	if u, _ := s.Usage("max", TypePhone, base, base.Add(time.Hour)); u != 3*time.Minute {
-		t.Fatalf("phone usage = %v, want 3m", u)
-	}
-
-	got, err := s.Samples("max", base, base.Add(time.Hour), time.UTC)
-	if err != nil || len(got) != 30 {
-		t.Fatalf("unexpected samples: %d %v", len(got), err)
-	}
-	all, _ := s.Samples("", base, base.Add(time.Hour), time.UTC)
-	if len(all) != 40 {
-		t.Fatalf("expected all samples, got %d", len(all))
-	}
-
-	n, err := s.PruneSamples(base.Add(5 * time.Minute))
-	if err != nil || n != 20 {
-		t.Fatalf("pruned %d, %v", n, err)
+	if d, _ := s.NintendoDevice("D1"); d.ProfileID != "" {
+		t.Fatalf("console still owned: %+v", d)
 	}
 }
 
 func TestOverrides(t *testing.T) {
 	s := newStore(t)
 	now := time.Date(2026, 11, 18, 16, 0, 0, 0, time.UTC)
-	id, err := s.AddOverride(Override{Kind: KindLock, ProfileID: "max", StartsAt: now, Until: now.Add(time.Hour)})
+	id, err := s.AddOverride(Override{Kind: KindRelease, ProfileID: "mia", DeviceID: "D1", StartsAt: now, Until: now.Add(time.Hour)})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.AddOverride(Override{Kind: KindBonus, ProfileID: "max", Minutes: 30, StartsAt: now.Add(-2 * time.Hour), Until: now.Add(-time.Hour)}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.AddOverride(Override{Kind: KindRelease, ProfileID: "mia", DeviceMAC: "aa", StartsAt: now.Add(time.Hour), Until: now.Add(2 * time.Hour)}); err != nil {
+	if _, err := s.AddOverride(Override{Kind: KindBonus, ProfileID: "max", Minutes: 5, StartsAt: now.Add(time.Hour), Until: now.Add(2 * time.Hour)}); err != nil {
 		t.Fatal(err)
 	}
 	active, err := s.ActiveOverrides(now, time.UTC)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(active) != 1 || active[0].ID != id || active[0].Kind != KindLock {
+	if len(active) != 1 || active[0].ID != id || active[0].Kind != KindRelease || active[0].DeviceID != "D1" {
 		t.Fatalf("unexpected active overrides: %+v", active)
 	}
 	if err := s.EndOverride(id, now.Add(time.Minute)); err != nil {
@@ -188,31 +124,46 @@ func TestOverrides(t *testing.T) {
 func TestEvents(t *testing.T) {
 	s := newStore(t)
 	t0 := time.Date(2026, 11, 18, 16, 0, 0, 0, time.UTC)
-	_ = s.AddEvent(Event{TS: t0, Kind: "block", Message: "first"})
-	_ = s.AddEvent(Event{TS: t0.Add(time.Minute), Kind: "unblock", Message: "second"})
+	_ = s.AddEvent(Event{TS: t0, Kind: "over", Message: "first"})
+	_ = s.AddEvent(Event{TS: t0.Add(time.Minute), Kind: "parent", DeviceID: "D1", Message: "second"})
 	_ = s.AddEvent(Event{Kind: "info", Message: "now"})
 	ev, err := s.Events(2, time.UTC)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(ev) != 2 || ev[0].Message != "now" || ev[1].Message != "second" {
+	if len(ev) != 2 || ev[0].Message != "now" || ev[1].Message != "second" || ev[1].DeviceID != "D1" {
 		t.Fatalf("unexpected events: %+v", ev)
+	}
+	if ev, _ := s.Events(10, time.UTC, "over"); len(ev) != 1 || ev[0].Message != "first" {
+		t.Fatalf("filtered events: %+v", ev)
 	}
 }
 
-func TestMigrationAddsPhoneRules(t *testing.T) {
+// TestMigrationToNintendoOnly upgrades a database of the WLAN era: consoles
+// take name and owner of the WLAN device they were mapped to, or of their
+// Nintendo users, and everything about WLAN devices is gone.
+func TestMigrationToNintendoOnly(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "old.db")
 	db, err := sql.Open("sqlite", "file:"+path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, stmt := range []string{
-		migrations[0],
-		`PRAGMA user_version = 1`,
-		`INSERT INTO profiles (id, name, daily_minutes) VALUES ('max', 'Max', 90)`,
-		`INSERT INTO devices (mac, name, profile_id, mode) VALUES ('ip', 'iPhone', 'max', 'traffic')`,
+	last := len(migrations) - 1
+	stmts := append([]string{}, migrations[:last]...)
+	stmts = append(stmts,
+		fmt.Sprintf(`PRAGMA user_version = %d`, last),
+		`INSERT INTO profiles (id, name, daily_minutes, phone_daily_minutes) VALUES ('max', 'Max', 90, 30), ('mia', 'Mia', 60, 0)`,
+		`INSERT INTO devices (mac, name, profile_id, mode) VALUES ('aa', 'Switch Kinderzimmer', 'mia', 'online'), ('ip', 'iPhone', 'max', 'traffic')`,
 		`INSERT INTO samples (ts, mac, profile_id, seconds, active) VALUES (100, 'ip', 'max', 60, 1)`,
-	} {
+		`INSERT INTO nintendo_devices (device_id, account, label, device_mac) VALUES ('D1', 1, 'Switch von Lisa', 'aa'), ('D2', 1, 'Switch 2', ''), ('D3', 1, 'Switch alt', '')`,
+		`INSERT INTO nintendo_players (player_id, device_id, nickname, profile_id) VALUES ('P1', 'D2', 'F', 'max'), ('P2', 'D2', 'F2', 'max'), ('P3', 'D3', 'A', 'max'), ('P4', 'D3', 'B', 'mia')`,
+		`INSERT INTO overrides (kind, profile_id, device_mac, starts_at, until, created_at) VALUES
+			('release', 'max', 'aa', 0, 9999999999, 0), ('lock', 'mia', '', 0, 9999999999, 0), ('release', 'mia', 'ip', 0, 9999999999, 0),
+			('bonus', 'mia', '', 0, 9999999999, 0)`,
+		`INSERT INTO events (ts, device_mac, kind, message) VALUES (1, 'aa', 'block', 'alt')`,
+		`INSERT INTO settings (key, value) VALUES ('dry_run', 'true'), ('notify_start', 'true')`,
+	)
+	for _, stmt := range stmts {
 		if _, err := db.Exec(stmt); err != nil {
 			t.Fatal(err)
 		}
@@ -224,16 +175,29 @@ func TestMigrationAddsPhoneRules(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = s.Close() }()
-	p, err := s.Profile("max")
-	if err != nil {
-		t.Fatal(err)
+	devs, _ := s.NintendoDevices()
+	want := map[string][2]string{"D1": {"Switch Kinderzimmer", "mia"}, "D2": {"Switch 2", "max"}, "D3": {"Switch alt", ""}}
+	for _, d := range devs {
+		if w := want[d.DeviceID]; d.Name != w[0] || d.ProfileID != w[1] {
+			t.Errorf("console %s = %q/%q, want %v", d.DeviceID, d.Name, d.ProfileID, w)
+		}
 	}
-	if p.Console.DailyMinutes != 90 || len(p.Phone.Schedule) != 7 || p.Phone.Schedule[time.Monday][0].End != 20*60+30 {
-		t.Fatalf("unexpected migrated profile: %+v", p)
+	if p, _ := s.Profile("max"); p.Rules.DailyMinutes != 90 {
+		t.Fatalf("profile = %+v", p)
 	}
-	u, err := s.Usage("max", TypePhone, time.Unix(0, 0), time.Unix(1000, 0))
-	if err != nil || u != time.Minute {
-		t.Fatalf("migrated phone usage = %v, %v", u, err)
+	ovs, _ := s.ActiveOverrides(time.Unix(100, 0), time.UTC)
+	if len(ovs) != 2 || ovs[0].Kind != KindRelease || ovs[0].DeviceID != "D1" || ovs[1].Kind != KindBonus {
+		t.Fatalf("overrides = %+v", ovs)
+	}
+	if ev, _ := s.Events(10, time.UTC); len(ev) != 1 || ev[0].DeviceID != "aa" {
+		t.Fatalf("events = %+v", ev)
+	}
+	if set, _ := s.Settings(); len(set) != 1 || set["notify_start"] != "true" {
+		t.Fatalf("settings = %v", set)
+	}
+	var tables int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE name IN ('devices', 'samples')`).Scan(&tables); err != nil || tables != 0 {
+		t.Fatalf("old tables remain: %d %v", tables, err)
 	}
 }
 
@@ -249,11 +213,11 @@ func TestSettings(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	must(s.SetSetting("dry_run", "true"))
-	must(s.SetSetting("dry_run", "false"))
-	must(s.SetSetting("wlan_blocking", "true"))
+	must(s.SetSetting("notify_start", "true"))
+	must(s.SetSetting("notify_start", "false"))
+	must(s.SetSetting("notify_warn", "true"))
 	got, _ = s.Settings()
-	if got["dry_run"] != "false" || got["wlan_blocking"] != "true" || len(got) != 2 {
+	if got["notify_start"] != "false" || got["notify_warn"] != "true" || len(got) != 2 {
 		t.Fatalf("settings = %v", got)
 	}
 }

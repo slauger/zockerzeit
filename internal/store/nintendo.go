@@ -18,23 +18,24 @@ type NintendoAccount struct {
 	LastError    string    `json:"lastError"`
 }
 
-// NintendoDevice is a console of a Nintendo account, optionally mapped to a
-// managed device by MAC address.
+// NintendoDevice is a console of a Nintendo account. Everything played on
+// it counts for the kid it belongs to, whichever user is signed in.
 type NintendoDevice struct {
-	DeviceID  string `json:"deviceId"`
-	Account   int64  `json:"account"`
+	DeviceID string `json:"deviceId"`
+	Account  int64  `json:"account"`
+	// Label is the name in the Nintendo app, Name the one shown here.
 	Label     string `json:"label"`
+	Name      string `json:"name"`
 	Model     string `json:"model"`
-	DeviceMAC string `json:"deviceMac"`
+	ProfileID string `json:"profileId"`
 }
 
-// NintendoPlayer is a user on a console, optionally mapped to a profile.
+// NintendoPlayer is a user on a console.
 type NintendoPlayer struct {
-	PlayerID  string `json:"playerId"`
-	DeviceID  string `json:"deviceId"`
-	Nickname  string `json:"nickname"`
-	ImageURI  string `json:"imageUri"`
-	ProfileID string `json:"profileId"`
+	PlayerID string `json:"playerId"`
+	DeviceID string `json:"deviceId"`
+	Nickname string `json:"nickname"`
+	ImageURI string `json:"imageUri"`
 }
 
 // NintendoGame is the play time of one application.
@@ -110,23 +111,27 @@ func (s *Store) DeleteNintendoAccount(id int64) error {
 	return tx.Commit()
 }
 
-// UpsertNintendoDevice stores a console and keeps an existing MAC mapping.
+// UpsertNintendoDevice stores a console and keeps its name and owner.
 func (s *Store) UpsertNintendoDevice(d NintendoDevice) error {
-	_, err := s.db.Exec(`INSERT INTO nintendo_devices (device_id, account, label, model) VALUES (?, ?, ?, ?)
+	if d.Name == "" {
+		d.Name = d.Label
+	}
+	_, err := s.db.Exec(`INSERT INTO nintendo_devices (device_id, account, label, name, model, profile_id) VALUES (?, ?, ?, ?, ?, ?)
 		ON CONFLICT(device_id) DO UPDATE SET account = excluded.account, label = excluded.label, model = excluded.model`,
-		d.DeviceID, d.Account, d.Label, d.Model)
+		d.DeviceID, d.Account, d.Label, d.Name, d.Model, d.ProfileID)
 	return err
 }
 
-// SetNintendoDeviceMAC maps a console to a managed device ("" removes it).
-func (s *Store) SetNintendoDeviceMAC(deviceID, mac string) error {
-	res, err := s.db.Exec(`UPDATE nintendo_devices SET device_mac = ? WHERE device_id = ?`, mac, deviceID)
+// SetNintendoDevice changes the name and the owner ("" for nobody) of a console.
+func (s *Store) SetNintendoDevice(deviceID, name, profileID string) error {
+	res, err := s.db.Exec(`UPDATE nintendo_devices SET name = CASE WHEN ? <> '' THEN ? ELSE label END, profile_id = ? WHERE device_id = ?`,
+		name, name, profileID, deviceID)
 	return affected(res, err)
 }
 
 // NintendoDevices returns all consoles.
 func (s *Store) NintendoDevices() ([]NintendoDevice, error) {
-	rows, err := s.db.Query(`SELECT device_id, account, label, model, device_mac FROM nintendo_devices ORDER BY label COLLATE NOCASE`)
+	rows, err := s.db.Query(`SELECT device_id, account, label, name, model, profile_id FROM nintendo_devices ORDER BY name COLLATE NOCASE`)
 	if err != nil {
 		return nil, err
 	}
@@ -134,7 +139,7 @@ func (s *Store) NintendoDevices() ([]NintendoDevice, error) {
 	var out []NintendoDevice
 	for rows.Next() {
 		var d NintendoDevice
-		if err := rows.Scan(&d.DeviceID, &d.Account, &d.Label, &d.Model, &d.DeviceMAC); err != nil {
+		if err := rows.Scan(&d.DeviceID, &d.Account, &d.Label, &d.Name, &d.Model, &d.ProfileID); err != nil {
 			return nil, err
 		}
 		out = append(out, d)
@@ -142,7 +147,21 @@ func (s *Store) NintendoDevices() ([]NintendoDevice, error) {
 	return out, rows.Err()
 }
 
-// UpsertNintendoPlayer stores a player and keeps an existing profile mapping.
+// NintendoDevice returns a single console.
+func (s *Store) NintendoDevice(deviceID string) (NintendoDevice, error) {
+	all, err := s.NintendoDevices()
+	if err != nil {
+		return NintendoDevice{}, err
+	}
+	for _, d := range all {
+		if d.DeviceID == deviceID {
+			return d, nil
+		}
+	}
+	return NintendoDevice{}, ErrNotFound
+}
+
+// UpsertNintendoPlayer stores a player.
 func (s *Store) UpsertNintendoPlayer(p NintendoPlayer) error {
 	_, err := s.db.Exec(`INSERT INTO nintendo_players (player_id, device_id, nickname, image_uri) VALUES (?, ?, ?, ?)
 		ON CONFLICT(player_id, device_id) DO UPDATE SET nickname = excluded.nickname, image_uri = excluded.image_uri`,
@@ -150,16 +169,9 @@ func (s *Store) UpsertNintendoPlayer(p NintendoPlayer) error {
 	return err
 }
 
-// SetNintendoPlayerProfile maps a player to a profile ("" removes it). The
-// same Nintendo user on several consoles is mapped everywhere at once.
-func (s *Store) SetNintendoPlayerProfile(playerID, profileID string) error {
-	res, err := s.db.Exec(`UPDATE nintendo_players SET profile_id = ? WHERE player_id = ?`, profileID, playerID)
-	return affected(res, err)
-}
-
 // NintendoPlayers returns all players.
 func (s *Store) NintendoPlayers() ([]NintendoPlayer, error) {
-	rows, err := s.db.Query(`SELECT player_id, device_id, nickname, image_uri, profile_id FROM nintendo_players ORDER BY nickname COLLATE NOCASE`)
+	rows, err := s.db.Query(`SELECT player_id, device_id, nickname, image_uri FROM nintendo_players ORDER BY nickname COLLATE NOCASE`)
 	if err != nil {
 		return nil, err
 	}
@@ -167,7 +179,7 @@ func (s *Store) NintendoPlayers() ([]NintendoPlayer, error) {
 	var out []NintendoPlayer
 	for rows.Next() {
 		var p NintendoPlayer
-		if err := rows.Scan(&p.PlayerID, &p.DeviceID, &p.Nickname, &p.ImageURI, &p.ProfileID); err != nil {
+		if err := rows.Scan(&p.PlayerID, &p.DeviceID, &p.Nickname, &p.ImageURI); err != nil {
 			return nil, err
 		}
 		out = append(out, p)
@@ -306,14 +318,6 @@ func (s *Store) AddNintendoPlay(plays []NintendoPlay) error {
 // so it is attributed again under the current mapping.
 func (s *Store) ResetNintendoPlay(deviceID string) error {
 	_, err := s.db.Exec(`DELETE FROM nintendo_play WHERE device_id = ?`, deviceID)
-	return err
-}
-
-// ResetNintendoPlayOfPlayer does the same for a user on consoles that are
-// not mapped to a managed device, where the user mapping decides.
-func (s *Store) ResetNintendoPlayOfPlayer(playerID string) error {
-	_, err := s.db.Exec(`DELETE FROM nintendo_play WHERE player_id = ?
-		AND device_id IN (SELECT device_id FROM nintendo_devices WHERE device_mac = '')`, playerID)
 	return err
 }
 

@@ -23,26 +23,29 @@ func TestNintendo(t *testing.T) {
 	}
 
 	check(s.UpsertNintendoDevice(NintendoDevice{DeviceID: "D1", Account: id, Label: "Switch", Model: "Switch 2"}))
-	check(s.SetNintendoDeviceMAC("D1", "aa:bb"))
+	check(s.SetNintendoDevice("D1", "Switch Kinderzimmer", "max"))
 	check(s.UpsertNintendoDevice(NintendoDevice{DeviceID: "D1", Account: id, Label: "Switch neu", Model: "Switch 2"}))
 	devs, _ := s.NintendoDevices()
-	if len(devs) != 1 || devs[0].DeviceMAC != "aa:bb" || devs[0].Label != "Switch neu" {
-		t.Fatalf("mapping lost on upsert: %+v", devs)
+	if len(devs) != 1 || devs[0].ProfileID != "max" || devs[0].Name != "Switch Kinderzimmer" || devs[0].Label != "Switch neu" {
+		t.Fatalf("owner or name lost on upsert: %+v", devs)
 	}
-	if err := s.SetNintendoDeviceMAC("nope", "x"); !errors.Is(err, ErrNotFound) {
+	check(s.SetNintendoDevice("D1", "", ""))
+	if d, _ := s.NintendoDevice("D1"); d.Name != "Switch neu" || d.ProfileID != "" {
+		t.Fatalf("empty name should fall back to the label: %+v", d)
+	}
+	if err := s.SetNintendoDevice("nope", "x", ""); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+	if _, err := s.NintendoDevice("nope"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 
 	check(s.UpsertNintendoPlayer(NintendoPlayer{PlayerID: "P1", DeviceID: "D1", Nickname: "Kind"}))
 	check(s.UpsertNintendoPlayer(NintendoPlayer{PlayerID: "P1", DeviceID: "D2", Nickname: "Kind"}))
-	check(s.SetNintendoPlayerProfile("P1", "max"))
 	check(s.UpsertNintendoPlayer(NintendoPlayer{PlayerID: "P1", DeviceID: "D1", Nickname: "Kind 2"}))
 	players, _ := s.NintendoPlayers()
-	if len(players) != 2 || players[0].ProfileID != "max" || players[1].ProfileID != "max" {
+	if len(players) != 2 || players[0].Nickname != "Kind" || players[1].Nickname != "Kind 2" {
 		t.Fatalf("players = %+v", players)
-	}
-	if err := s.SetNintendoPlayerProfile("nope", "x"); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 
 	check(s.UpsertNintendoUsage(NintendoUsage{Date: "2026-11-21", DeviceID: "D1", PlayerID: "P1", Minutes: 30, Games: []NintendoGame{{ApplicationID: "A", Minutes: 30}}}))

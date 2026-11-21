@@ -12,7 +12,6 @@ import (
 	"github.com/slauger/zockerzeit/internal/rules"
 	"github.com/slauger/zockerzeit/internal/stats"
 	"github.com/slauger/zockerzeit/internal/store"
-	"github.com/slauger/zockerzeit/internal/unifi"
 )
 
 // --- dashboard ----------------------------------------------------------
@@ -20,10 +19,10 @@ import (
 type dashboardData struct {
 	Nintendo map[string]nintendoToday
 	Views    []engine.ProfileView
-	Profiles []store.Profile
-	Devices  []store.Device
-	Shared   []store.Device
-	PolledAt time.Time
+	Names    map[string]string
+	At       time.Time
+	// Unowned are consoles that count for nobody yet.
+	Unowned []engine.Console
 }
 
 func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
@@ -32,18 +31,14 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	profiles, _ := s.store.Profiles()
-	devices, _ := s.store.Devices()
-	var shared []store.Device
-	for _, d := range devices {
-		if d.Shared {
-			shared = append(shared, d)
+	data := dashboardData{Views: views, Names: s.profileNames(), At: s.engine.Now(), Nintendo: s.nintendoByProfile()}
+	consoles, _ := s.engine.Consoles()
+	for _, c := range consoles {
+		if c.HeldBy == "" {
+			data.Unowned = append(data.Unowned, c)
 		}
 	}
-	s.render(w, r, "dashboard", "Übersicht", dashboardData{
-		Views: views, Profiles: profiles, Devices: devices, Shared: shared, PolledAt: s.engine.Snapshot().At,
-		Nintendo: s.nintendoByProfile(),
-	})
+	s.render(w, r, "dashboard", "Übersicht", data)
 }
 
 func (s *Server) statusAPI(w http.ResponseWriter, _ *http.Request) {
@@ -53,7 +48,7 @@ func (s *Server) statusAPI(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	snap := s.engine.Snapshot()
-	writeJSON(w, map[string]any{"at": snap.At, "dryRun": snap.DryRun, "error": snap.Error, "profiles": views})
+	writeJSON(w, map[string]any{"at": snap.At, "error": snap.Error, "profiles": views})
 }
 
 // --- parent actions -----------------------------------------------------
@@ -61,72 +56,37 @@ func (s *Server) statusAPI(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) action(w http.ResponseWriter, r *http.Request) {
 	now := s.engine.Now()
 	back := backTarget(r)
-	kind := r.FormValue("action")
 	profileID := r.FormValue("profile")
-	mac := r.FormValue("device")
 	minutes, _ := strconv.Atoi(r.FormValue("minutes"))
 	tomorrow := rules.StartOfDay(now).AddDate(0, 0, 1)
 
 	o := store.Override{StartsAt: now, ProfileID: profileID, Minutes: minutes}
 	var msg string
-	switch kind {
-	case "lock":
-		o.Kind = store.KindLock
-		o.Until = now.Add(time.Duration(minutes) * time.Minute)
-		if minutes <= 0 {
-			o.Until = tomorrow
-		}
-		msg = fmt.Sprintf("%s gesperrt bis %s", s.profileName(profileID), o.Until.Format("02.01. 15:04"))
-	case "allow":
-		o.Kind = store.KindAllow
-		o.Until = now.Add(time.Duration(minutes) * time.Minute)
-		msg = fmt.Sprintf("%s freigegeben für %d Min", s.profileName(profileID), minutes)
+	switch r.FormValue("action") {
 	case "bonus":
 		o.Kind = store.KindBonus
 		o.Until = tomorrow
 		msg = fmt.Sprintf("%s bekommt heute %d Min extra", s.profileName(profileID), minutes)
 	case "release":
+		c, err := s.store.NintendoDevice(r.FormValue("device"))
+		if err != nil {
+			redirectErr(w, r, back, errors.New("bitte eine Konsole wählen"))
+			return
+		}
 		o.Kind = store.KindRelease
-		o.DeviceMAC = mac
+		o.DeviceID = c.DeviceID
 		o.Until = now.Add(time.Duration(minutes) * time.Minute)
-		if minutes <= 0 {
+		if minutes <= 0 || o.Until.After(tomorrow) {
 			o.Until = tomorrow
 			o.Minutes = int(tomorrow.Sub(now).Minutes())
 		}
-		msg = fmt.Sprintf("%s ist bis %s bei %s", s.deviceName(mac), o.Until.Format("15:04"), s.profileName(profileID))
-	case "lockdevice":
-		o.Kind = store.KindLock
-		o.DeviceMAC = mac
-		o.ProfileID = s.deviceProfile(mac)
-		o.Until = now.Add(time.Duration(minutes) * time.Minute)
-		if minutes <= 0 {
-			o.Until = tomorrow
-		}
-		msg = fmt.Sprintf("%s gesperrt bis %s", s.deviceName(mac), o.Until.Format("02.01. 15:04"))
-	case "lockdevice-next", "unlockdevice-next":
-		// Until the device's schedule flips next, e.g. the end of the current
-		// window or the start of the next one.
-		o.ProfileID = s.deviceProfile(mac)
-		o.DeviceMAC = mac
-		o.Until = s.nextChange(mac, now)
-		o.Minutes = int(o.Until.Sub(now).Minutes())
-		if kind == "lockdevice-next" {
-			o.Kind = store.KindLock
-			msg = fmt.Sprintf("%s gesperrt bis %s", s.deviceName(mac), o.Until.Format("02.01. 15:04"))
-		} else {
-			o.Kind = store.KindRelease
-			msg = fmt.Sprintf("%s freigegeben bis %s", s.deviceName(mac), o.Until.Format("02.01. 15:04"))
-		}
+		msg = fmt.Sprintf("%s ist bis %s bei %s", c.Name, o.Until.Format("15:04"), s.profileName(profileID))
 	default:
 		redirectErr(w, r, back, errors.New("unbekannte Aktion"))
 		return
 	}
-	if o.ProfileID == "" || (o.Kind != store.KindLock && o.Kind != store.KindBonus && o.Minutes <= 0) || (o.Kind == store.KindBonus && o.Minutes == 0) {
-		redirectErr(w, r, back, errors.New("bitte Profil und Minuten angeben"))
-		return
-	}
-	if (kind == "release" || kind == "lockdevice") && mac == "" {
-		redirectErr(w, r, back, errors.New("bitte ein Gerät wählen"))
+	if _, err := s.store.Profile(profileID); err != nil || o.Minutes == 0 || (o.Kind == store.KindRelease && o.Minutes < 0) {
+		redirectErr(w, r, back, errors.New("bitte Kind und Minuten angeben"))
 		return
 	}
 	o.Note = msg
@@ -134,7 +94,7 @@ func (s *Server) action(w http.ResponseWriter, r *http.Request) {
 		redirectErr(w, r, back, err)
 		return
 	}
-	_ = s.store.AddEvent(store.Event{TS: now, ProfileID: o.ProfileID, DeviceMAC: o.DeviceMAC, Kind: "parent", Message: msg})
+	_ = s.store.AddEvent(store.Event{TS: now, ProfileID: o.ProfileID, DeviceID: o.DeviceID, Kind: "parent", Message: msg})
 	s.applyNow(r)
 	redirect(w, r, back, msg)
 }
@@ -172,25 +132,6 @@ func (s *Server) applyNow(r *http.Request) {
 	}
 }
 
-// nextChange returns when the schedule of a device's owner flips next, or
-// tomorrow morning if it never does.
-func (s *Server) nextChange(mac string, now time.Time) time.Time {
-	devs, _ := s.store.Devices()
-	for _, d := range devs {
-		if d.MAC != mac {
-			continue
-		}
-		p, err := s.store.Profile(d.ProfileID)
-		if err != nil {
-			break
-		}
-		if t, ok := p.Rules(d.Type()).Schedule.NextChange(now); ok {
-			return t
-		}
-	}
-	return rules.StartOfDay(now).AddDate(0, 0, 1)
-}
-
 func (s *Server) profileName(id string) string {
 	if p, err := s.store.Profile(id); err == nil {
 		return p.Name
@@ -198,62 +139,32 @@ func (s *Server) profileName(id string) string {
 	return id
 }
 
-func (s *Server) deviceName(mac string) string {
-	devs, _ := s.store.Devices()
-	for _, d := range devs {
-		if d.MAC == mac {
-			return d.Name
-		}
+func (s *Server) profileNames() map[string]string {
+	profiles, _ := s.store.Profiles()
+	out := make(map[string]string, len(profiles))
+	for _, p := range profiles {
+		out[p.ID] = p.Name
 	}
-	return mac
-}
-
-func (s *Server) deviceProfile(mac string) string {
-	devs, _ := s.store.Devices()
-	for _, d := range devs {
-		if d.MAC == mac {
-			return d.ProfileID
-		}
-	}
-	return ""
+	return out
 }
 
 // --- rules --------------------------------------------------------------
 
-type deviceTypeInfo struct {
-	Key   string
-	Label string
-	Hint  string
-}
-
-var deviceTypeInfos = []deviceTypeInfo{
-	{Key: store.TypeConsole, Label: "Konsole", Hint: "Zählt, solange die Konsole im WLAN ist."},
-	{Key: store.TypePhone, Label: "Handy", Hint: "Zählt nur bei Datenverkehr. Anrufe über das Mobilfunknetz gehen immer."},
-}
-
 type rulesData struct {
 	Profiles []store.Profile
-	Types    []deviceTypeInfo
 	Weekdays []time.Weekday
-	// HasPhone tells which profiles have a phone assigned.
-	HasPhone map[string]bool
 }
 
 // newProfileTemplate is the starting point offered for a new profile.
 func newProfileTemplate() store.Profile {
 	weekday := []rules.Window{{Start: 15 * 60, End: 18*60 + 30}}
 	weekend := []rules.Window{{Start: 10 * 60, End: 12 * 60}, {Start: 15 * 60, End: 19 * 60}}
-	phone := []rules.Window{{Start: 7 * 60, End: 20*60 + 30}}
-	p := store.Profile{
-		Console: store.RuleSet{DailyMinutes: 90, WeeklyMinutes: 480, Schedule: rules.Schedule{}},
-		Phone:   store.RuleSet{Schedule: rules.Schedule{}},
-	}
+	p := store.Profile{Rules: store.RuleSet{DailyMinutes: 60, WeeklyMinutes: 420, Schedule: rules.Schedule{}}}
 	for _, d := range rules.Weekdays {
-		p.Console.Schedule[d] = weekday
+		p.Rules.Schedule[d] = weekday
 		if d == time.Saturday || d == time.Sunday {
-			p.Console.Schedule[d] = weekend
+			p.Rules.Schedule[d] = weekend
 		}
-		p.Phone.Schedule[d] = phone
 	}
 	return p
 }
@@ -264,32 +175,24 @@ func (s *Server) rulesPage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	hasPhone := map[string]bool{}
-	devices, _ := s.store.Devices()
-	for _, d := range devices {
-		if d.Type() == store.TypePhone {
-			hasPhone[d.ProfileID] = true
-		}
-	}
 	profiles = append(profiles, newProfileTemplate())
-	s.render(w, r, "regeln", "Regeln", rulesData{Profiles: profiles, Types: deviceTypeInfos, Weekdays: rules.Weekdays, HasPhone: hasPhone})
+	s.render(w, r, "regeln", "Regeln", rulesData{Profiles: profiles, Weekdays: rules.Weekdays})
 }
 
-// parseRuleSet reads the limits and windows of one device type from the form.
-func parseRuleSet(r *http.Request, deviceType string) (store.RuleSet, error) {
-	label := engine.TypeLabels[deviceType]
+// parseRuleSet reads the limits and windows from the form.
+func parseRuleSet(r *http.Request) (store.RuleSet, error) {
 	rs := store.RuleSet{Schedule: rules.Schedule{}}
 	var err error
-	if rs.DailyMinutes, err = atoiEmpty(r.FormValue(deviceType + "_daily")); err != nil || rs.DailyMinutes < 0 {
-		return rs, fmt.Errorf("%s: Tageslimit muss eine Zahl ab 0 sein", label)
+	if rs.DailyMinutes, err = atoiEmpty(r.FormValue("daily")); err != nil || rs.DailyMinutes < 0 {
+		return rs, errors.New("Tageslimit muss eine Zahl ab 0 sein")
 	}
-	if rs.WeeklyMinutes, err = atoiEmpty(r.FormValue(deviceType + "_weekly")); err != nil || rs.WeeklyMinutes < 0 {
-		return rs, fmt.Errorf("%s: Wochenlimit muss eine Zahl ab 0 sein", label)
+	if rs.WeeklyMinutes, err = atoiEmpty(r.FormValue("weekly")); err != nil || rs.WeeklyMinutes < 0 {
+		return rs, errors.New("Wochenlimit muss eine Zahl ab 0 sein")
 	}
 	for _, d := range rules.Weekdays {
-		ws, err := rules.ParseWindows(r.FormValue(deviceType + "_win_" + strconv.Itoa(int(d))))
+		ws, err := rules.ParseWindows(r.FormValue("win_" + strconv.Itoa(int(d))))
 		if err != nil {
-			return rs, fmt.Errorf("%s, %s: %w", label, rules.WeekdayNames[d], err)
+			return rs, fmt.Errorf("%s: %w", rules.WeekdayNames[d], err)
 		}
 		if len(ws) > 0 {
 			rs.Schedule[d] = ws
@@ -322,11 +225,7 @@ func (s *Server) saveProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	p := store.Profile{ID: id, Name: name}
 	var err error
-	if p.Console, err = parseRuleSet(r, store.TypeConsole); err != nil {
-		redirectErr(w, r, "/regeln", err)
-		return
-	}
-	if p.Phone, err = parseRuleSet(r, store.TypePhone); err != nil {
+	if p.Rules, err = parseRuleSet(r); err != nil {
 		redirectErr(w, r, "/regeln", err)
 		return
 	}
@@ -341,14 +240,6 @@ func (s *Server) saveProfile(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) deleteProfile(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	devs, _ := s.store.Devices()
-	for _, d := range devs {
-		if d.ProfileID == id {
-			if err := s.engine.Release(r.Context(), d.MAC); err != nil {
-				s.log.Warn("unblocking device failed", "mac", d.MAC, "err", err)
-			}
-		}
-	}
 	if err := s.store.DeleteProfile(id); err != nil {
 		redirectErr(w, r, "/regeln", err)
 		return
@@ -378,151 +269,12 @@ func slugify(name string) string {
 	return out
 }
 
-// --- devices ------------------------------------------------------------
-
-type deviceGroup struct {
-	Index   int
-	Profile store.Profile
-	Devices []store.Device
-}
-
-type seenDevice struct {
-	engine.SeenClient
-	Type string
-}
-
-type devicesData struct {
-	Groups   []deviceGroup
-	Profiles []store.Profile
-	Seen     []seenDevice
-	States   map[string]engine.DeviceState
-	// Internet is true when devices can be blocked via the FRITZ!Box.
-	Internet bool
-	// DefaultBlocker is preselected for devices found in the WLAN.
-	DefaultBlocker string
-}
-
-// guessType suggests a device type from the hostname reported by UniFi.
-func guessType(name string) string {
-	n := strings.ToLower(name)
-	for _, hint := range []string{"iphone", "ipad", "android", "pixel", "galaxy", "phone", "xiaomi", "redmi"} {
-		if strings.Contains(n, hint) {
-			return store.TypePhone
-		}
-	}
-	return store.TypeConsole
-}
-
-func (s *Server) devicesPage(w http.ResponseWriter, r *http.Request) {
-	devices, err := s.store.Devices()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	profiles, _ := s.store.Profiles()
-	snap := s.engine.Snapshot()
-	states := map[string]engine.DeviceState{}
-	for _, v := range snap.Profiles {
-		for _, d := range v.Devices {
-			states[d.Device.MAC] = d
-		}
-	}
-	var seen []seenDevice
-	for _, c := range snap.Seen {
-		if !c.Managed {
-			seen = append(seen, seenDevice{SeenClient: c, Type: guessType(c.Name)})
-		}
-	}
-	groups := make([]deviceGroup, 0, len(profiles))
-	for i, p := range profiles {
-		g := deviceGroup{Index: i, Profile: p}
-		for _, d := range devices {
-			if d.ProfileID == p.ID {
-				g.Devices = append(g.Devices, d)
-			}
-		}
-		groups = append(groups, g)
-	}
-	s.render(w, r, "geraete", "Geräte", devicesData{Groups: groups, Profiles: profiles, Seen: seen, States: states, Internet: s.engine.InternetEnabled(), DefaultBlocker: s.engine.Settings().DefaultBlocker})
-}
-
-func (s *Server) saveDevice(w http.ResponseWriter, r *http.Request) {
-	d := store.Device{
-		MAC:       unifi.NormalizeMAC(r.FormValue("mac")),
-		Name:      strings.TrimSpace(r.FormValue("name")),
-		ProfileID: r.FormValue("profile"),
-		Shared:    r.FormValue("shared") == "on",
-		Mode:      modeForType(r.FormValue("type"), r.FormValue("mode")),
-		Blocker:   r.FormValue("blocker"),
-
-		ScheduleBlock: r.FormValue("schedule_block") == "on",
-	}
-	if !validMAC(d.MAC) {
-		redirectErr(w, r, "/geraete", fmt.Errorf("ungültige MAC-Adresse %q", d.MAC))
-		return
-	}
-	if d.Name == "" {
-		d.Name = d.MAC
-	}
-	if _, err := s.store.Profile(d.ProfileID); err != nil {
-		redirectErr(w, r, "/geraete", errors.New("bitte zuerst ein Profil anlegen und auswählen"))
-		return
-	}
-	// Switching the way of blocking: lift a block set the old way first,
-	// otherwise it would stay forever.
-	devs, _ := s.store.Devices()
-	for _, old := range devs {
-		if old.MAC == d.MAC && old.Blocker != d.Blocker && (d.Blocker == store.BlockInternet || old.Blocker == store.BlockInternet) {
-			if err := s.engine.Release(r.Context(), d.MAC); err != nil {
-				s.log.Warn("lifting the previous block failed", "mac", d.MAC, "err", err)
-			}
-		}
-	}
-	if err := s.store.SaveDevice(d); err != nil {
-		redirectErr(w, r, "/geraete", err)
-		return
-	}
-	_ = s.store.AddEvent(store.Event{TS: s.engine.Now(), ProfileID: d.ProfileID, DeviceMAC: d.MAC, Kind: "config", Message: d.Name + " gespeichert"})
-	s.applyNow(r)
-	redirect(w, r, "/geraete", d.Name+" gespeichert")
-}
-
-func (s *Server) deleteDevice(w http.ResponseWriter, r *http.Request) {
-	mac := unifi.NormalizeMAC(r.PathValue("mac"))
-	if err := s.store.DeleteDevice(mac); err != nil {
-		redirectErr(w, r, "/geraete", err)
-		return
-	}
-	if err := s.engine.Release(r.Context(), mac); err != nil {
-		s.log.Warn("unblocking device failed", "mac", mac, "err", err)
-	}
-	_ = s.store.AddEvent(store.Event{TS: s.engine.Now(), DeviceMAC: mac, Kind: "config", Message: mac + " nicht mehr verwaltet"})
-	redirect(w, r, "/geraete", "Gerät entfernt und entsperrt")
-}
-
-func validMAC(mac string) bool {
-	parts := strings.Split(mac, ":")
-	if len(parts) != 6 {
-		return false
-	}
-	for _, p := range parts {
-		if len(p) != 2 {
-			return false
-		}
-		if _, err := strconv.ParseUint(p, 16, 8); err != nil {
-			return false
-		}
-	}
-	return true
-}
-
 // --- events -------------------------------------------------------------
 
 // eventFilters groups event kinds for the filter on the log page.
 var eventFilters = map[string][]string{
-	"sperren": {"block", "unblock", "dryrun", "error"},
-	"online":  {"online", "offline", "roam"},
-	"eltern":  {"parent", "config"},
+	"zeit":   {"over"},
+	"eltern": {"parent", "config"},
 }
 
 type eventsData struct {
@@ -550,8 +302,6 @@ type historyData struct {
 	Profiles []store.Profile
 	Selected string
 	Days     int
-	Date     string
-	Type     string
 	Games    gamesView
 }
 
@@ -562,81 +312,46 @@ func (s *Server) history(w http.ResponseWriter, r *http.Request) {
 		sel = profiles[0].ID
 	}
 	days := atoiDefault(r.URL.Query().Get("tage"), 14)
-	date := r.URL.Query().Get("tag")
-	if date == "" {
-		date = s.engine.Now().Format("2006-01-02")
-	}
-	t := r.URL.Query().Get("typ")
-	if t != store.TypePhone && t != "alle" {
-		t = store.TypeConsole
-	}
-	data := historyData{Profiles: profiles, Selected: sel, Days: days, Date: date, Type: t}
-	if t != store.TypePhone {
-		today := s.engine.Now().In(s.engine.Location())
-		data.Games = s.nintendoGames(sel, today.AddDate(0, 0, 1-days), today)
-	}
+	today := s.engine.Now()
+	data := historyData{Profiles: profiles, Selected: sel, Days: days, Games: s.nintendoGames(sel, today.AddDate(0, 0, 1-days), today)}
 	s.render(w, r, "verlauf", "Verlauf", data)
 }
 
 type statsResponse struct {
-	Profile   string          `json:"profile"`
-	Limit     int             `json:"limit"`
-	Daily     stats.Daily     `json:"daily"`
-	Heatmap   [7][24]float64  `json:"heatmap"`
-	Locations []stats.Slice   `json:"locations"`
-	Devices   []stats.Slice   `json:"devices"`
-	Sessions  []stats.Session `json:"sessions"`
-	Day       string          `json:"day"`
+	Profile  string         `json:"profile"`
+	Limit    int            `json:"limit"`
+	Daily    stats.Daily    `json:"daily"`
+	Heatmap  [7][24]float64 `json:"heatmap"`
+	Consoles []stats.Slice  `json:"consoles"`
 }
 
 func (s *Server) statsAPI(w http.ResponseWriter, r *http.Request) {
-	loc := s.engine.Location()
 	now := s.engine.Now()
 	profileID := r.URL.Query().Get("profile")
 	days := min(max(atoiDefault(r.URL.Query().Get("days"), 14), 1), 366)
-
-	names := map[string]string{}
-	devs, _ := s.store.Devices()
-	for _, d := range devs {
-		names[d.MAC] = d.Name
-	}
-	// Without a type filter console and phone time are mixed, so there is no
-	// single limit to draw. Console limits apply to Nintendo play time, not
-	// to the WLAN time shown here.
-	deviceType := r.URL.Query().Get("type")
 	limit := 0
-	if p, err := s.store.Profile(profileID); err == nil && deviceType == store.TypePhone {
-		limit = p.Rules(deviceType).DailyMinutes
+	if p, err := s.store.Profile(profileID); err == nil {
+		limit = p.Rules.DailyMinutes
 	}
-
 	from := rules.StartOfDay(now).AddDate(0, 0, -(days - 1))
-	samples, err := s.store.Samples(profileID, from, now.Add(time.Minute), loc)
+	all, err := s.store.NintendoPlayBetween(from.Format("2006-01-02"), now.Format("2006-01-02"))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	samples = filterType(samples, deviceType)
-
-	day, err := time.ParseInLocation("2006-01-02", r.URL.Query().Get("day"), loc)
-	if err != nil {
-		day = rules.StartOfDay(now)
+	var plays []store.NintendoPlay
+	for _, p := range all {
+		if p.ProfileID == profileID {
+			plays = append(plays, p)
+		}
 	}
-	daySamples, err := s.store.Samples(profileID, day, day.AddDate(0, 0, 1), loc)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	daySamples = filterType(daySamples, deviceType)
-
+	names := s.nintendoConsoleNames()
 	writeJSON(w, statsResponse{
-		Profile:   profileID,
-		Limit:     limit,
-		Daily:     stats.DailyMinutes(samples, from, days, names),
-		Heatmap:   stats.Heatmap(samples, float64(days)/7),
-		Locations: stats.Locations(samples),
-		Devices:   stats.Devices(samples, names),
-		Sessions:  stats.Sessions(daySamples, names, 3*time.Minute),
-		Day:       day.Format("2006-01-02"),
+		Profile:  profileID,
+		Limit:    limit,
+		Daily:    stats.DailyMinutes(plays, from, days, names),
+		Heatmap:  stats.Heatmap(plays, s.engine.Location(), float64(days)/7),
+		Consoles: stats.Consoles(plays, names),
 	})
 }
 
@@ -697,121 +412,15 @@ func (s *Server) kidAPI(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	st := v.Status
 	writeJSON(w, map[string]any{
-		"name":    v.Profile.Name,
-		"console": kidStatus(v.Console),
-		"phone":   kidStatus(v.Phone),
-	})
-}
-
-func kidStatus(st rules.Status) map[string]any {
-	return map[string]any{
+		"name":      v.Profile.Name,
 		"allowed":   st.Allowed,
 		"reason":    st.Reason,
 		"usedToday": int(st.UsedToday.Minutes()),
 		"limit":     st.LimitToday,
 		"remaining": int(st.Remaining.Minutes()),
-	}
-}
-
-// modeForType maps the device type chosen in the UI to its tracking mode.
-func modeForType(deviceType, mode string) string {
-	switch deviceType {
-	case store.TypePhone:
-		return store.ModeTraffic
-	case store.TypeConsole:
-		return store.ModeOnline
-	}
-	return mode
-}
-
-// --- device detail -----------------------------------------------------
-
-type deviceDetailData struct {
-	Device    store.Device
-	State     engine.DeviceState
-	Owner     store.Profile
-	Others    []store.Profile
-	Overrides []store.Override
-	Sessions  []stats.Session
-	Today     time.Duration
-	// NextChange is when the schedule of the device flips next.
-	NextChange time.Time
-	DryRun     bool
-}
-
-func (s *Server) deviceDetail(w http.ResponseWriter, r *http.Request) {
-	mac := unifi.NormalizeMAC(r.PathValue("mac"))
-	devices, err := s.store.Devices()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	var data deviceDetailData
-	found := false
-	for _, d := range devices {
-		if d.MAC == mac {
-			data.Device, found = d, true
-		}
-	}
-	if !found {
-		http.NotFound(w, r)
-		return
-	}
-	profiles, _ := s.store.Profiles()
-	for _, p := range profiles {
-		if p.ID == data.Device.ProfileID {
-			data.Owner = p
-		} else {
-			data.Others = append(data.Others, p)
-		}
-	}
-	for _, v := range s.engine.Snapshot().Profiles {
-		for _, ds := range v.Devices {
-			if ds.Device.MAC == mac {
-				data.State = ds
-			}
-		}
-	}
-	now := s.engine.Now()
-	ovs, _ := s.store.ActiveOverrides(now, s.engine.Location())
-	for _, o := range ovs {
-		if o.DeviceMAC == mac {
-			data.Overrides = append(data.Overrides, o)
-		}
-	}
-	samples, err := s.store.Samples("", rules.StartOfDay(now), now.Add(time.Minute), s.engine.Location())
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	var mine []store.Sample
-	for _, sm := range samples {
-		if sm.MAC == mac {
-			mine = append(mine, sm)
-			if sm.Active {
-				data.Today += time.Duration(sm.Seconds) * time.Second
-			}
-		}
-	}
-	data.Sessions = stats.Sessions(mine, map[string]string{mac: data.Device.Name}, 3*time.Minute)
-	data.NextChange = s.nextChange(mac, now)
-	data.DryRun = s.engine.DryRun()
-	s.render(w, r, "geraet", data.Device.Name, data)
-}
-
-// filterType keeps the samples of one device type; any other value keeps all.
-func filterType(samples []store.Sample, deviceType string) []store.Sample {
-	if deviceType != store.TypeConsole && deviceType != store.TypePhone {
-		return samples
-	}
-	out := samples[:0]
-	for _, sm := range samples {
-		if sm.Type == deviceType {
-			out = append(out, sm)
-		}
-	}
-	return out
+	})
 }
 
 // kidManifest makes the kid view installable as an app of its own per kid.
@@ -859,15 +468,13 @@ func (s *Server) kidServiceWorker(w http.ResponseWriter, r *http.Request) {
 // --- settings -----------------------------------------------------------
 
 type settingsData struct {
-	Settings         engine.Settings
-	Internet         bool
 	Nintendo         bool
 	NintendoAccounts []store.NintendoAccount
 	Notify           *notifyData
 }
 
 func (s *Server) settingsPage(w http.ResponseWriter, r *http.Request) {
-	data := settingsData{Settings: s.engine.Settings(), Internet: s.engine.InternetEnabled(), Nintendo: s.opts.Nintendo != nil, Notify: s.notifyData()}
+	data := settingsData{Nintendo: s.opts.Nintendo != nil, Notify: s.notifyData()}
 	if data.Nintendo {
 		accounts, err := s.store.NintendoAccounts()
 		if err != nil {
@@ -877,28 +484,4 @@ func (s *Server) settingsPage(w http.ResponseWriter, r *http.Request) {
 		data.NintendoAccounts = accounts
 	}
 	s.render(w, r, "einstellungen", "Einstellungen", data)
-}
-
-func (s *Server) saveSettings(w http.ResponseWriter, r *http.Request) {
-	set := engine.Settings{
-		DryRun:           r.FormValue("dry_run") == "on",
-		WLANBlocking:     r.FormValue("wlan_blocking") == "on",
-		InternetBlocking: r.FormValue("internet_blocking") == "on",
-		DefaultBlocker:   r.FormValue("default_blocker"),
-	}
-	before := s.engine.Settings()
-	if err := s.engine.SaveSettings(set); err != nil {
-		redirectErr(w, r, "/einstellungen", err)
-		return
-	}
-	msg := "Einstellungen gespeichert"
-	switch {
-	case before.DryRun && !set.DryRun:
-		msg = "Testmodus aus: Zockerzeit sperrt und entsperrt jetzt selbst"
-	case !before.DryRun && set.DryRun:
-		msg = "Testmodus an: Zockerzeit simuliert nur noch"
-	}
-	_ = s.store.AddEvent(store.Event{TS: s.engine.Now(), Kind: "config", Message: msg})
-	s.applyNow(r)
-	redirect(w, r, "/einstellungen", msg)
 }

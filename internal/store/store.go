@@ -1,5 +1,5 @@
-// Package store persists profiles, devices, usage samples, overrides and
-// events in SQLite.
+// Package store persists profiles, Nintendo consoles and play time,
+// overrides and events in SQLite.
 package store
 
 import (
@@ -16,46 +16,16 @@ import (
 	_ "modernc.org/sqlite" // pure Go SQLite driver
 )
 
-// Device tracking modes.
-const (
-	// ModeOnline counts every minute the device is connected as play time.
-	// Suits consoles, which drop off the WLAN when in standby.
-	ModeOnline = "online"
-	// ModeTraffic counts only minutes with noticeable traffic. Suits phones,
-	// which stay connected all the time.
-	ModeTraffic = "traffic"
-)
-
-// Device types. Each type has its own time windows and budget per profile.
-const (
-	TypeConsole = "console"
-	TypePhone   = "phone"
-)
-
-// Ways to block a device.
-const (
-	// BlockWLAN disconnects the device from the WLAN via UniFi.
-	BlockWLAN = "wlan"
-	// BlockInternet keeps the device in the WLAN and cuts its internet access
-	// via the FRITZ!Box.
-	BlockInternet = "internet"
-)
-
-// DeviceTypes lists all device types in display order.
-var DeviceTypes = []string{TypeConsole, TypePhone}
-
 // Override kinds.
 const (
-	KindLock    = "lock"    // profile or device blocked until Until
-	KindAllow   = "allow"   // profile allowed until Until regardless of rules
 	KindBonus   = "bonus"   // extra minutes for the day of StartsAt
-	KindRelease = "release" // shared device released for another profile
+	KindRelease = "release" // console lent to another kid until Until
 )
 
 // ErrNotFound is returned when a record does not exist.
 var ErrNotFound = errors.New("not found")
 
-// RuleSet holds the time windows and budget for one device type.
+// RuleSet holds the time windows and budget of a kid.
 type RuleSet struct {
 	DailyMinutes  int            `json:"dailyMinutes"`
 	WeeklyMinutes int            `json:"weeklyMinutes"`
@@ -67,55 +37,11 @@ func (r RuleSet) Limits() rules.Limits {
 	return rules.Limits{DailyMinutes: r.DailyMinutes, WeeklyMinutes: r.WeeklyMinutes, Schedule: r.Schedule}
 }
 
-// Profile is a person whose play time is managed.
+// Profile is a kid whose play time is tracked.
 type Profile struct {
-	ID      string  `json:"id"`
-	Name    string  `json:"name"`
-	Console RuleSet `json:"console"`
-	Phone   RuleSet `json:"phone"`
-}
-
-// Rules returns the rule set for a device type.
-func (p Profile) Rules(deviceType string) RuleSet {
-	if deviceType == TypePhone {
-		return p.Phone
-	}
-	return p.Console
-}
-
-// Device is a managed client device.
-type Device struct {
-	MAC       string `json:"mac"`
-	Name      string `json:"name"`
-	ProfileID string `json:"profileId"`
-	Shared    bool   `json:"shared"`
-	Mode      string `json:"mode"`
-	Blocker   string `json:"blocker"`
-	// ScheduleBlock blocks the device outside the time windows of its
-	// profile. Play time limits never block.
-	ScheduleBlock bool `json:"scheduleBlock"`
-}
-
-// Type returns the device type. Phones are tracked by traffic, everything
-// else by connection time.
-func (d Device) Type() string {
-	if d.Mode == ModeTraffic {
-		return TypePhone
-	}
-	return TypeConsole
-}
-
-// Sample is one poll result for one device.
-type Sample struct {
-	TS        time.Time
-	MAC       string
-	ProfileID string
-	Type      string
-	Seconds   int
-	Active    bool
-	Bytes     int64
-	APName    string
-	ESSID     string
+	ID    string  `json:"id"`
+	Name  string  `json:"name"`
+	Rules RuleSet `json:"rules"`
 }
 
 // Override is a manual parent decision.
@@ -123,7 +49,7 @@ type Override struct {
 	ID        int64     `json:"id"`
 	Kind      string    `json:"kind"`
 	ProfileID string    `json:"profileId"`
-	DeviceMAC string    `json:"deviceMac"`
+	DeviceID  string    `json:"deviceId"` // Nintendo console of a release
 	Minutes   int       `json:"minutes"`
 	StartsAt  time.Time `json:"startsAt"`
 	Until     time.Time `json:"until"`
@@ -136,7 +62,7 @@ type Event struct {
 	ID        int64     `json:"id"`
 	TS        time.Time `json:"ts"`
 	ProfileID string    `json:"profileId"`
-	DeviceMAC string    `json:"deviceMac"`
+	DeviceID  string    `json:"deviceId"`
 	Kind      string    `json:"kind"`
 	Message   string    `json:"message"`
 }
@@ -269,6 +195,34 @@ var migrations = []string{
 		label TEXT NOT NULL,
 		config TEXT NOT NULL
 	);`,
+	// Nintendo only: consoles belong to a kid directly, WLAN devices, usage
+	// samples, phone rules and blocking are gone. A console keeps the name
+	// and owner of the WLAN device it was mapped to; consoles without one
+	// take the kid all of their Nintendo users were mapped to.
+	`ALTER TABLE nintendo_devices ADD COLUMN name TEXT NOT NULL DEFAULT '';
+	ALTER TABLE nintendo_devices ADD COLUMN profile_id TEXT NOT NULL DEFAULT '';
+	UPDATE nintendo_devices SET
+		name = COALESCE((SELECT d.name FROM devices d WHERE d.mac = nintendo_devices.device_mac), ''),
+		profile_id = COALESCE((SELECT d.profile_id FROM devices d WHERE d.mac = nintendo_devices.device_mac), '')
+		WHERE device_mac <> '';
+	UPDATE nintendo_devices SET profile_id = COALESCE((SELECT MIN(p.profile_id) FROM nintendo_players p
+		WHERE p.device_id = nintendo_devices.device_id AND p.profile_id <> '' HAVING COUNT(DISTINCT p.profile_id) = 1), '')
+		WHERE profile_id = '';
+	UPDATE nintendo_devices SET name = label WHERE name = '';
+	DELETE FROM overrides WHERE kind NOT IN ('bonus', 'release');
+	DELETE FROM overrides WHERE kind = 'release' AND device_mac NOT IN (SELECT device_mac FROM nintendo_devices WHERE device_mac <> '');
+	UPDATE overrides SET device_mac = (SELECT n.device_id FROM nintendo_devices n WHERE n.device_mac = overrides.device_mac) WHERE kind = 'release';
+	UPDATE overrides SET device_mac = '' WHERE kind = 'bonus';
+	ALTER TABLE overrides RENAME COLUMN device_mac TO device_id;
+	ALTER TABLE events RENAME COLUMN device_mac TO device_id;
+	ALTER TABLE nintendo_devices DROP COLUMN device_mac;
+	ALTER TABLE nintendo_players DROP COLUMN profile_id;
+	ALTER TABLE profiles DROP COLUMN phone_daily_minutes;
+	ALTER TABLE profiles DROP COLUMN phone_weekly_minutes;
+	ALTER TABLE profiles DROP COLUMN phone_schedule;
+	DROP TABLE samples;
+	DROP TABLE devices;
+	DELETE FROM settings WHERE key IN ('dry_run', 'wlan_blocking', 'internet_blocking', 'default_blocker');`,
 }
 
 // Open opens (and migrates) the database at path. Use ":memory:" for tests.
@@ -320,6 +274,12 @@ func (s *Store) migrate() error {
 			return err
 		}
 	}
+	// Give space of dropped tables back after upgrading an existing database.
+	if version > 0 && version < len(migrations) {
+		if _, err := s.db.Exec("VACUUM"); err != nil {
+			return fmt.Errorf("vacuum: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -351,183 +311,47 @@ func (s *Store) Profile(id string) (Profile, error) {
 	return p, err
 }
 
-const profileColumns = `id, name, daily_minutes, weekly_minutes, schedule, phone_daily_minutes, phone_weekly_minutes, phone_schedule`
+const profileColumns = `id, name, daily_minutes, weekly_minutes, schedule`
 
 type scanner interface{ Scan(...any) error }
 
 func scanProfile(r scanner) (Profile, error) {
 	var p Profile
-	var consoleSched, phoneSched string
-	if err := r.Scan(&p.ID, &p.Name, &p.Console.DailyMinutes, &p.Console.WeeklyMinutes, &consoleSched,
-		&p.Phone.DailyMinutes, &p.Phone.WeeklyMinutes, &phoneSched); err != nil {
+	var sched string
+	if err := r.Scan(&p.ID, &p.Name, &p.Rules.DailyMinutes, &p.Rules.WeeklyMinutes, &sched); err != nil {
 		return p, err
 	}
-	p.Console.Schedule = rules.Schedule{}
-	p.Phone.Schedule = rules.Schedule{}
-	if err := json.Unmarshal([]byte(consoleSched), &p.Console.Schedule); err != nil {
+	p.Rules.Schedule = rules.Schedule{}
+	if err := json.Unmarshal([]byte(sched), &p.Rules.Schedule); err != nil {
 		return p, fmt.Errorf("profile %s: schedule: %w", p.ID, err)
-	}
-	if err := json.Unmarshal([]byte(phoneSched), &p.Phone.Schedule); err != nil {
-		return p, fmt.Errorf("profile %s: phone schedule: %w", p.ID, err)
 	}
 	return p, nil
 }
 
-func marshalSchedule(s rules.Schedule) (string, error) {
-	if s == nil {
-		s = rules.Schedule{}
-	}
-	b, err := json.Marshal(s)
-	return string(b), err
-}
-
 // SaveProfile inserts or updates a profile.
 func (s *Store) SaveProfile(p Profile) error {
-	consoleSched, err := marshalSchedule(p.Console.Schedule)
+	sched := p.Rules.Schedule
+	if sched == nil {
+		sched = rules.Schedule{}
+	}
+	b, err := json.Marshal(sched)
 	if err != nil {
 		return err
 	}
-	phoneSched, err := marshalSchedule(p.Phone.Schedule)
-	if err != nil {
-		return err
-	}
-	_, err = s.db.Exec(`INSERT INTO profiles (`+profileColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	_, err = s.db.Exec(`INSERT INTO profiles (`+profileColumns+`) VALUES (?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET name = excluded.name, daily_minutes = excluded.daily_minutes,
-		weekly_minutes = excluded.weekly_minutes, schedule = excluded.schedule,
-		phone_daily_minutes = excluded.phone_daily_minutes, phone_weekly_minutes = excluded.phone_weekly_minutes,
-		phone_schedule = excluded.phone_schedule`,
-		p.ID, p.Name, p.Console.DailyMinutes, p.Console.WeeklyMinutes, consoleSched,
-		p.Phone.DailyMinutes, p.Phone.WeeklyMinutes, phoneSched)
+		weekly_minutes = excluded.weekly_minutes, schedule = excluded.schedule`,
+		p.ID, p.Name, p.Rules.DailyMinutes, p.Rules.WeeklyMinutes, string(b))
 	return err
 }
 
-// DeleteProfile removes a profile. Devices assigned to it are removed too.
+// DeleteProfile removes a profile. Its consoles no longer count for anyone.
 func (s *Store) DeleteProfile(id string) error {
-	if _, err := s.db.Exec(`DELETE FROM devices WHERE profile_id = ?`, id); err != nil {
+	if _, err := s.db.Exec(`UPDATE nintendo_devices SET profile_id = '' WHERE profile_id = ?`, id); err != nil {
 		return err
 	}
 	_, err := s.db.Exec(`DELETE FROM profiles WHERE id = ?`, id)
 	return err
-}
-
-// Devices returns all managed devices ordered by name.
-func (s *Store) Devices() ([]Device, error) {
-	rows, err := s.db.Query(`SELECT mac, name, profile_id, shared, mode, blocker, schedule_block FROM devices ORDER BY name COLLATE NOCASE`)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = rows.Close() }()
-	var out []Device
-	for rows.Next() {
-		var d Device
-		if err := rows.Scan(&d.MAC, &d.Name, &d.ProfileID, &d.Shared, &d.Mode, &d.Blocker, &d.ScheduleBlock); err != nil {
-			return nil, err
-		}
-		out = append(out, d)
-	}
-	return out, rows.Err()
-}
-
-// SaveDevice inserts or updates a device.
-func (s *Store) SaveDevice(d Device) error {
-	if d.Mode != ModeTraffic {
-		d.Mode = ModeOnline
-	}
-	if d.Blocker != BlockInternet {
-		d.Blocker = BlockWLAN
-	}
-	_, err := s.db.Exec(`INSERT INTO devices (mac, name, profile_id, shared, mode, blocker, schedule_block) VALUES (?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(mac) DO UPDATE SET name = excluded.name, profile_id = excluded.profile_id,
-		shared = excluded.shared, mode = excluded.mode, blocker = excluded.blocker, schedule_block = excluded.schedule_block`,
-		d.MAC, d.Name, d.ProfileID, d.Shared, d.Mode, d.Blocker, d.ScheduleBlock)
-	return err
-}
-
-// DeleteDevice removes a device from management.
-func (s *Store) DeleteDevice(mac string) error {
-	_, err := s.db.Exec(`DELETE FROM devices WHERE mac = ?`, mac)
-	return err
-}
-
-// AddSamples stores poll results.
-func (s *Store) AddSamples(samples []Sample) error {
-	if len(samples) == 0 {
-		return nil
-	}
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	stmt, err := tx.Prepare(`INSERT OR REPLACE INTO samples (ts, mac, profile_id, device_type, seconds, active, bytes, ap_name, essid)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-	if err != nil {
-		_ = tx.Rollback()
-		return err
-	}
-	defer func() { _ = stmt.Close() }()
-	for _, sm := range samples {
-		if _, err := stmt.Exec(sm.TS.Unix(), sm.MAC, sm.ProfileID, deviceType(sm.Type), sm.Seconds, sm.Active, sm.Bytes, sm.APName, sm.ESSID); err != nil {
-			_ = tx.Rollback()
-			return err
-		}
-	}
-	return tx.Commit()
-}
-
-func deviceType(t string) string {
-	if t == TypePhone {
-		return TypePhone
-	}
-	return TypeConsole
-}
-
-// Usage returns the play time of a profile on one device type in [from, to).
-// Minutes in which several devices were active at once count only once.
-func (s *Store) Usage(profileID, deviceType string, from, to time.Time) (time.Duration, error) {
-	var secs int64
-	err := s.db.QueryRow(`SELECT COALESCE(SUM(sec), 0) FROM (
-			SELECT MAX(seconds) AS sec FROM samples
-			WHERE profile_id = ? AND device_type = ? AND active = 1 AND ts >= ? AND ts < ?
-			GROUP BY ts
-		)`, profileID, deviceType, from.Unix(), to.Unix()).Scan(&secs)
-	return time.Duration(secs) * time.Second, err
-}
-
-// Samples returns all samples of a profile in [from, to). An empty profileID
-// returns samples of all profiles.
-func (s *Store) Samples(profileID string, from, to time.Time, loc *time.Location) ([]Sample, error) {
-	q := `SELECT ts, mac, profile_id, device_type, seconds, active, bytes, ap_name, essid FROM samples WHERE ts >= ? AND ts < ?`
-	args := []any{from.Unix(), to.Unix()}
-	if profileID != "" {
-		q += ` AND profile_id = ?`
-		args = append(args, profileID)
-	}
-	q += ` ORDER BY ts`
-	rows, err := s.db.Query(q, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = rows.Close() }()
-	var out []Sample
-	for rows.Next() {
-		var sm Sample
-		var ts int64
-		if err := rows.Scan(&ts, &sm.MAC, &sm.ProfileID, &sm.Type, &sm.Seconds, &sm.Active, &sm.Bytes, &sm.APName, &sm.ESSID); err != nil {
-			return nil, err
-		}
-		sm.TS = time.Unix(ts, 0).In(loc)
-		out = append(out, sm)
-	}
-	return out, rows.Err()
-}
-
-// PruneSamples deletes samples older than before.
-func (s *Store) PruneSamples(before time.Time) (int64, error) {
-	res, err := s.db.Exec(`DELETE FROM samples WHERE ts < ?`, before.Unix())
-	if err != nil {
-		return 0, err
-	}
-	return res.RowsAffected()
 }
 
 // AddOverride stores an override and returns its id.
@@ -535,9 +359,9 @@ func (s *Store) AddOverride(o Override) (int64, error) {
 	if o.CreatedAt.IsZero() {
 		o.CreatedAt = time.Now()
 	}
-	res, err := s.db.Exec(`INSERT INTO overrides (kind, profile_id, device_mac, minutes, starts_at, until, note, created_at)
+	res, err := s.db.Exec(`INSERT INTO overrides (kind, profile_id, device_id, minutes, starts_at, until, note, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		o.Kind, o.ProfileID, o.DeviceMAC, o.Minutes, o.StartsAt.Unix(), o.Until.Unix(), o.Note, o.CreatedAt.Unix())
+		o.Kind, o.ProfileID, o.DeviceID, o.Minutes, o.StartsAt.Unix(), o.Until.Unix(), o.Note, o.CreatedAt.Unix())
 	if err != nil {
 		return 0, err
 	}
@@ -558,7 +382,7 @@ func (s *Store) EndOverride(id int64, now time.Time) error {
 
 // ActiveOverrides returns all overrides active at now.
 func (s *Store) ActiveOverrides(now time.Time, loc *time.Location) ([]Override, error) {
-	rows, err := s.db.Query(`SELECT id, kind, profile_id, device_mac, minutes, starts_at, until, note, created_at
+	rows, err := s.db.Query(`SELECT id, kind, profile_id, device_id, minutes, starts_at, until, note, created_at
 		FROM overrides WHERE starts_at <= ? AND until > ? ORDER BY created_at`, now.Unix(), now.Unix())
 	if err != nil {
 		return nil, err
@@ -568,7 +392,7 @@ func (s *Store) ActiveOverrides(now time.Time, loc *time.Location) ([]Override, 
 	for rows.Next() {
 		var o Override
 		var startsAt, until, created int64
-		if err := rows.Scan(&o.ID, &o.Kind, &o.ProfileID, &o.DeviceMAC, &o.Minutes, &startsAt, &until, &o.Note, &created); err != nil {
+		if err := rows.Scan(&o.ID, &o.Kind, &o.ProfileID, &o.DeviceID, &o.Minutes, &startsAt, &until, &o.Note, &created); err != nil {
 			return nil, err
 		}
 		o.StartsAt = time.Unix(startsAt, 0).In(loc)
@@ -584,35 +408,14 @@ func (s *Store) AddEvent(e Event) error {
 	if e.TS.IsZero() {
 		e.TS = time.Now()
 	}
-	_, err := s.db.Exec(`INSERT INTO events (ts, profile_id, device_mac, kind, message) VALUES (?, ?, ?, ?, ?)`,
-		e.TS.Unix(), e.ProfileID, e.DeviceMAC, e.Kind, e.Message)
+	_, err := s.db.Exec(`INSERT INTO events (ts, profile_id, device_id, kind, message) VALUES (?, ?, ?, ?, ?)`,
+		e.TS.Unix(), e.ProfileID, e.DeviceID, e.Kind, e.Message)
 	return err
-}
-
-// LastPresence returns the latest online or offline event per device.
-func (s *Store) LastPresence(loc *time.Location) (map[string]Event, error) {
-	rows, err := s.db.Query(`SELECT device_mac, kind, MAX(ts) FROM events
-		WHERE kind IN ('online', 'offline') AND device_mac != '' GROUP BY device_mac`)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = rows.Close() }()
-	out := map[string]Event{}
-	for rows.Next() {
-		var e Event
-		var ts int64
-		if err := rows.Scan(&e.DeviceMAC, &e.Kind, &ts); err != nil {
-			return nil, err
-		}
-		e.TS = time.Unix(ts, 0).In(loc)
-		out[e.DeviceMAC] = e
-	}
-	return out, rows.Err()
 }
 
 // Events returns the newest events first, optionally only of the given kinds.
 func (s *Store) Events(limit int, loc *time.Location, kinds ...string) ([]Event, error) {
-	q := `SELECT id, ts, profile_id, device_mac, kind, message FROM events`
+	q := `SELECT id, ts, profile_id, device_id, kind, message FROM events`
 	var args []any
 	if len(kinds) > 0 {
 		q += ` WHERE kind IN (?` + strings.Repeat(`, ?`, len(kinds)-1) + `)` //nolint:gosec // only placeholders are concatenated
@@ -631,7 +434,7 @@ func (s *Store) Events(limit int, loc *time.Location, kinds ...string) ([]Event,
 	for rows.Next() {
 		var e Event
 		var ts int64
-		if err := rows.Scan(&e.ID, &ts, &e.ProfileID, &e.DeviceMAC, &e.Kind, &e.Message); err != nil {
+		if err := rows.Scan(&e.ID, &ts, &e.ProfileID, &e.DeviceID, &e.Kind, &e.Message); err != nil {
 			return nil, err
 		}
 		e.TS = time.Unix(ts, 0).In(loc)

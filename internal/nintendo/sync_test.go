@@ -116,62 +116,54 @@ func TestAttribute(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	for _, id := range []string{"finn", "lea"} {
+	for _, id := range []string{"max", "mia"} {
 		check(st.SaveProfile(store.Profile{ID: id, Name: id}))
 	}
-	check(st.SaveDevice(store.Device{MAC: "aa:00", Name: "Switch 2", ProfileID: "finn"}))
-	check(st.UpsertNintendoDevice(store.NintendoDevice{DeviceID: "OWNED", Account: 1, Label: "Switch 2"}))
-	check(st.SetNintendoDeviceMAC("OWNED", "aa:00"))
+	check(st.UpsertNintendoDevice(store.NintendoDevice{DeviceID: "OWNED", Account: 1, Label: "Switch 2", ProfileID: "max"}))
 	check(st.UpsertNintendoDevice(store.NintendoDevice{DeviceID: "LOOSE", Account: 1, Label: "Switch"}))
-	check(st.UpsertNintendoPlayer(store.NintendoPlayer{PlayerID: "P-LEA", DeviceID: "LOOSE", Nickname: "lea"}))
-	check(st.SetNintendoPlayerProfile("P-LEA", "lea"))
 
-	// Lea plays on Finn's console with her own user: counts for Finn.
-	check(st.UpsertNintendoUsage(store.NintendoUsage{Date: today, DeviceID: "OWNED", PlayerID: "P-LEA", Minutes: 20}))
-	// Unknown user on the console without owner: stays open.
-	check(st.UpsertNintendoUsage(store.NintendoUsage{Date: today, DeviceID: "LOOSE", PlayerID: "P-X", Minutes: 7}))
-	check(st.UpsertNintendoUsage(store.NintendoUsage{Date: today, DeviceID: "LOOSE", PlayerID: "P-LEA", Minutes: 5}))
+	// Mia plays on Max's console with her own user: counts for Max.
+	check(st.UpsertNintendoUsage(store.NintendoUsage{Date: today, DeviceID: "OWNED", PlayerID: "P-MIA", Minutes: 20}))
+	// The console without owner: stays open.
+	check(st.UpsertNintendoUsage(store.NintendoUsage{Date: today, DeviceID: "LOOSE", PlayerID: "P-MIA", Minutes: 5}))
 	check(Attribute(st, now, berlin))
 	minutes := func(profile, date string) int {
 		m, err := st.NintendoMinutes(profile, date, date)
 		check(err)
 		return m
 	}
-	if minutes("finn", today) != 20 || minutes("lea", today) != 5 {
-		t.Fatalf("finn=%d lea=%d", minutes("finn", today), minutes("lea", today))
+	if minutes("max", today) != 20 || minutes("mia", today) != 0 {
+		t.Fatalf("max=%d mia=%d", minutes("max", today), minutes("mia", today))
 	}
 
-	// The console is with Lea now: new minutes of today count for her,
+	// The console is with Mia now: new minutes of today count for her,
 	// late minutes of yesterday for the owner.
-	_, err = st.AddOverride(store.Override{Kind: store.KindRelease, ProfileID: "lea", DeviceMAC: "aa:00", StartsAt: now, Until: now.Add(time.Hour), Minutes: 60})
+	_, err = st.AddOverride(store.Override{Kind: store.KindRelease, ProfileID: "mia", DeviceID: "OWNED", StartsAt: now, Until: now.Add(time.Hour), Minutes: 60})
 	check(err)
-	check(st.UpsertNintendoUsage(store.NintendoUsage{Date: today, DeviceID: "OWNED", PlayerID: "P-LEA", Minutes: 50}))
-	check(st.UpsertNintendoUsage(store.NintendoUsage{Date: yesterday, DeviceID: "OWNED", PlayerID: "P-LEA", Minutes: 30}))
+	check(st.UpsertNintendoUsage(store.NintendoUsage{Date: today, DeviceID: "OWNED", PlayerID: "P-MIA", Minutes: 50}))
+	check(st.UpsertNintendoUsage(store.NintendoUsage{Date: yesterday, DeviceID: "OWNED", PlayerID: "P-MIA", Minutes: 30}))
 	check(Attribute(st, now.Add(10*time.Minute), berlin))
-	if minutes("finn", today) != 20 || minutes("lea", today) != 35 || minutes("finn", yesterday) != 30 {
-		t.Fatalf("after borrowing: finn=%d lea=%d finn yesterday=%d", minutes("finn", today), minutes("lea", today), minutes("finn", yesterday))
+	if minutes("max", today) != 20 || minutes("mia", today) != 30 || minutes("max", yesterday) != 30 {
+		t.Fatalf("after borrowing: max=%d mia=%d max yesterday=%d", minutes("max", today), minutes("mia", today), minutes("max", yesterday))
 	}
 
 	// Nintendo corrects a day downwards.
-	check(st.UpsertNintendoUsage(store.NintendoUsage{Date: yesterday, DeviceID: "OWNED", PlayerID: "P-LEA", Minutes: 25}))
+	check(st.UpsertNintendoUsage(store.NintendoUsage{Date: yesterday, DeviceID: "OWNED", PlayerID: "P-MIA", Minutes: 25}))
 	check(Attribute(st, now.Add(20*time.Minute), berlin))
-	if minutes("finn", yesterday) != 25 {
-		t.Fatalf("correction not applied: %d", minutes("finn", yesterday))
+	if minutes("max", yesterday) != 25 {
+		t.Fatalf("correction not applied: %d", minutes("max", yesterday))
 	}
 	plays, _ := st.NintendoPlayBetween(yesterday, today)
-	if len(plays) != 5 {
+	if len(plays) != 4 {
 		t.Fatalf("plays = %+v", plays)
 	}
 
-	// Re-attributing a console after its mapping changed.
-	check(st.ResetNintendoPlay("OWNED"))
-	check(st.SetNintendoDeviceMAC("OWNED", ""))
-	check(st.UpsertNintendoPlayer(store.NintendoPlayer{PlayerID: "P-LEA", DeviceID: "OWNED", Nickname: "lea"}))
-	check(st.SetNintendoPlayerProfile("P-LEA", "lea"))
-	check(st.ResetNintendoPlayOfPlayer("P-LEA"))
+	// The loose console gets an owner: its time is attributed again.
+	check(st.SetNintendoDevice("LOOSE", "", "mia"))
+	check(st.ResetNintendoPlay("LOOSE"))
 	check(Attribute(st, now.Add(30*time.Minute), berlin))
-	if minutes("lea", today) != 55 || minutes("finn", today) != 0 {
-		t.Fatalf("after reset: lea=%d finn=%d", minutes("lea", today), minutes("finn", today))
+	if minutes("mia", today) != 35 {
+		t.Fatalf("after owner change: mia=%d", minutes("mia", today))
 	}
 }
 
@@ -190,16 +182,10 @@ func TestAnnounceStart(t *testing.T) {
 	}
 	defer func() { _ = st.Close() }()
 	berlin, _ := time.LoadLocation("Europe/Berlin")
-	if err := st.SaveProfile(store.Profile{ID: "finn", Name: "Finn"}); err != nil {
+	if err := st.SaveProfile(store.Profile{ID: "max", Name: "Max"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.SaveDevice(store.Device{MAC: "aa:01", Name: "Switch 2 Finn", ProfileID: "finn"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := st.UpsertNintendoDevice(store.NintendoDevice{DeviceID: "DEV1", Account: 1, Label: "x"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := st.SetNintendoDeviceMAC("DEV1", "aa:01"); err != nil {
+	if err := st.UpsertNintendoDevice(store.NintendoDevice{DeviceID: "DEV1", Account: 1, Label: "x", Name: "Switch 2 Max", ProfileID: "max"}); err != nil {
 		t.Fatal(err)
 	}
 	box, _ := secret.NewBox([]byte("k"), "nintendo")
@@ -216,7 +202,7 @@ func TestAnnounceStart(t *testing.T) {
 	if _, err := s.Connect(context.Background(), "Papa", "npf54789befb391a838://auth#session_token_code=CODE", verifier); err != nil {
 		t.Fatal(err)
 	}
-	if len(rec.msgs) != 1 || !strings.HasPrefix(rec.msgs[0], "start|Finn spielt|Kart, Bauen auf Switch 2 Finn") {
+	if len(rec.msgs) != 1 || !strings.HasPrefix(rec.msgs[0], "start|Max spielt|Kart, Bauen auf Switch 2 Max") {
 		t.Fatalf("start notification: %v", rec.msgs)
 	}
 	// Nothing new: no notification.
@@ -226,7 +212,7 @@ func TestAnnounceStart(t *testing.T) {
 		t.Fatalf("unexpected notifications: %v", rec.msgs)
 	}
 	// More play time while the console was active recently: no new start.
-	if err := st.AddNintendoPlay([]store.NintendoPlay{{TS: clock, Date: "2026-11-21", DeviceID: "DEV1", PlayerID: "P1", ProfileID: "finn", Minutes: 5}}); err != nil {
+	if err := st.AddNintendoPlay([]store.NintendoPlay{{TS: clock, Date: "2026-11-21", DeviceID: "DEV1", PlayerID: "P1", ProfileID: "max", Minutes: 5}}); err != nil {
 		t.Fatal(err)
 	}
 	clock = clock.Add(10 * time.Minute)
@@ -239,7 +225,7 @@ func TestAnnounceStart(t *testing.T) {
 	clock = clock.Add(2 * time.Hour)
 	s.noteFresh(store.NintendoUsage{}, "2026-11-21", "DEV1", PlayerDay{PlayerID: "PX", Minutes: 3, Games: []Game{{ApplicationID: "0100ZZ", Minutes: 3}}})
 	s.announce(context.Background(), clock)
-	if len(rec.msgs) != 2 || !strings.HasPrefix(rec.msgs[1], "start|Jemand spielt|spielt auf Switch 2 Finn") {
+	if len(rec.msgs) != 2 || !strings.HasPrefix(rec.msgs[1], "start|Jemand spielt|spielt auf Switch 2 Max") {
 		t.Fatalf("new start: %v", rec.msgs)
 	}
 }

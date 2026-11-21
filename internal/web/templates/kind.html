@@ -14,33 +14,30 @@
 {{with .Data}}
 {{$v := .View}}
 <div class="kid-app" data-kid>
-<section class="kid {{if $v.Console.Allowed}}is-allowed{{else}}is-paused{{end}}">
+<section class="kid {{if $v.Status.Allowed}}is-allowed{{else}}is-paused{{end}}">
   <header class="kid-head">
     <img class="kid-logo" src="/static/favicon.svg" alt="" width="44" height="44">
     <h1>Hallo {{$v.Profile.Name}}!</h1>
   </header>
 
   <div class="kid-main">
-    {{if $v.Console.Allowed}}
+    {{if $v.Status.Allowed}}
       <p class="kid-label">Du kannst noch</p>
-      <p class="kid-big">{{remaining $v.Console}}</p>
+      <p class="kid-big">{{remaining $v.Status}}</p>
       <p class="kid-label">zocken.</p>
     {{else}}
       <p class="kid-big">Pause</p>
-      <p class="kid-label">{{$v.Console.Reason}}</p>
+      <p class="kid-label">{{$v.Status.Reason}}</p>
     {{end}}
-    {{with cells $v.Console}}
+    {{with cells $v.Status}}
     <div class="energy kid-energy" aria-hidden="true">{{range .}}<span class="cell {{.}}"></span>{{end}}</div>
     {{end}}
-    {{if $v.Console.LimitToday}}<p class="kid-small">Heute {{dur $v.Console.UsedToday}} von {{$v.Console.LimitToday}} Min gezockt</p>{{end}}
-    {{if $v.Console.LimitWeek}}<p class="kid-small">Diese Woche {{dur $v.Console.UsedWeek}} von {{dur (minutes $v.Console.LimitWeek)}}</p>{{end}}
+    {{if $v.Status.LimitToday}}<p class="kid-small">Heute {{dur $v.Status.UsedToday}} von {{$v.Status.LimitToday}} Min gezockt</p>{{end}}
+    {{if $v.Status.LimitWeek}}<p class="kid-small">Diese Woche {{dur $v.Status.UsedWeek}} von {{dur (minutes $v.Status.LimitWeek)}}</p>{{end}}
   </div>
 
   <ul class="kid-facts">
     <li>{{if .Window}}Heute {{.Window}} Uhr{{else}}Heute keine Zockzeit{{end}}</li>
-    {{if $v.HasType "phone"}}
-    <li class="{{if $v.Phone.Allowed}}is-allowed{{else}}is-paused{{end}}">Handy: {{if $v.Phone.Allowed}}{{if $v.Phone.LimitToday}}noch {{remaining $v.Phone}}{{else}}frei{{end}}{{else}}{{$v.Phone.Reason}}{{end}}</li>
-    {{end}}
   </ul>
 </section>
 

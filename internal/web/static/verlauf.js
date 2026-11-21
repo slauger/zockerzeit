@@ -19,7 +19,7 @@
     return m < 60 ? m + " Min" : Math.floor(m / 60) + ":" + String(m % 60).padStart(2, "0") + " Std";
   };
 
-  const params = new URLSearchParams({ profile: root.dataset.profile, days: root.dataset.days, day: root.dataset.day, type: root.dataset.type });
+  const params = new URLSearchParams({ profile: root.dataset.profile, days: root.dataset.days });
   fetch("/api/stats?" + params, { credentials: "same-origin" })
     .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
     .then(render)
@@ -27,7 +27,7 @@
       root.insertAdjacentHTML("afterbegin", '<div class="banner err">Statistik konnte nicht geladen werden (' + err + ").</div>");
     });
 
-  // Each device keeps the same color across all charts.
+  // Each console keeps the same color across all charts.
   const colors = {};
   const colorFor = (name) => {
     if (!(name in colors)) colors[name] = palette[Object.keys(colors).length % palette.length];
@@ -36,12 +36,10 @@
 
   function render(data) {
     (data.daily.series || []).forEach((s) => colorFor(s.name));
-    (data.devices || []).forEach((s) => colorFor(s.name));
+    (data.consoles || []).forEach((s) => colorFor(s.name));
     daily(data);
-    timeline(data);
     heatmap(data.heatmap);
-    doughnut("chart-locations", data.locations, (_, i) => palette[palette.length - 1 - (i % palette.length)]);
-    doughnut("chart-devices", data.devices, (s) => colorFor(s.name));
+    doughnut("chart-consoles", data.consoles, (s) => colorFor(s.name));
   }
 
   function daily(data) {
@@ -52,7 +50,7 @@
       data: s.data.map((x) => Math.round(x)),
       backgroundColor: colorFor(s.name),
       borderRadius: 4,
-      stack: "devices",
+      stack: "consoles",
     }));
     datasets.push({
       type: "line",
@@ -84,57 +82,6 @@
           y: { stacked: true, beginAtZero: true, title: { display: true, text: "Minuten" } },
         },
         plugins: { tooltip: { callbacks: { label: (c) => c.dataset.label + ": " + fmtMin(c.parsed.y) } } },
-      },
-    });
-  }
-
-  function timeline(data) {
-    const sessions = data.sessions || [];
-    document.getElementById("timeline-day").textContent = new Date(data.day + "T12:00:00").toLocaleDateString("de-DE", { weekday: "long", day: "2-digit", month: "2-digit" });
-    if (!sessions.length) {
-      document.getElementById("timeline-wrap").hidden = true;
-      document.getElementById("timeline-empty").hidden = false;
-      return;
-    }
-    const hours = (iso) => {
-      const t = new Date(iso);
-      return t.getHours() + t.getMinutes() / 60;
-    };
-    const devices = [...new Set(sessions.map((s) => s.device))];
-    const datasets = devices.map((dev) => ({
-      label: dev,
-      data: sessions.filter((s) => s.device === dev).map((s) => ({ x: [hours(s.start), Math.max(hours(s.end), hours(s.start) + 0.05)], y: dev, ap: s.ap, start: s.start, end: s.end })),
-      backgroundColor: colorFor(dev),
-      borderRadius: 3,
-      barPercentage: 0.6,
-    }));
-    const min = Math.max(0, Math.floor(Math.min(...sessions.map((s) => hours(s.start)))) - 1);
-    const max = Math.min(24, Math.ceil(Math.max(...sessions.map((s) => hours(s.end)))) + 1);
-    document.getElementById("timeline-wrap").style.height = Math.max(140, devices.length * 56 + 60) + "px";
-    const clock = (iso) => new Date(iso).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
-    new Chart(document.getElementById("chart-timeline"), {
-      type: "bar",
-      data: { labels: devices, datasets },
-      options: {
-        indexAxis: "y",
-        maintainAspectRatio: false,
-        parsing: { xAxisKey: "x", yAxisKey: "y" },
-        scales: {
-          x: { min, max, ticks: { stepSize: 1, callback: (h) => h + ":00" } },
-          y: { stacked: true, grid: { display: false } },
-        },
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            callbacks: {
-              label: (c) => {
-                const r = c.raw;
-                const mins = (new Date(r.end) - new Date(r.start)) / 60000;
-                return clock(r.start) + "–" + clock(r.end) + " (" + fmtMin(mins) + ")" + (r.ap ? " · " + r.ap : "");
-              },
-            },
-          },
-        },
       },
     });
   }

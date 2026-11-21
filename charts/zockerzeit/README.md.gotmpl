@@ -4,7 +4,7 @@
 
 ## Overview
 
-Deploys Zockerzeit next to a UniFi Network Application. Zockerzeit polls the controller, records play time per device and blocks devices on the WLAN when the agreed play time is used up.
+Deploys Zockerzeit, a play time dashboard for parents. It fetches the play time per console and game from the Nintendo Switch parental controls, counts it per kid against the time windows and limits, and notifies when the time is almost up.
 
 Only a single replica is supported because the data lives in SQLite on a persistent volume.
 
@@ -13,11 +13,10 @@ Only a single replica is supported because the data lives in SQLite on a persist
 ```bash
 helm install zockerzeit oci://ghcr.io/slauger/charts/zockerzeit \
   --namespace zockerzeit --create-namespace \
-  --set config.unifi.url=https://unifi.unifi.svc.cluster.local:8443 \
   --set secret.existingSecret=zockerzeit
 ```
 
-The secret must contain `ZOCKERZEIT_UNIFI_USERNAME` and `ZOCKERZEIT_UNIFI_PASSWORD` (or `ZOCKERZEIT_UNIFI_API_KEY`), `ZOCKERZEIT_ADMIN_PASSWORD` and `ZOCKERZEIT_SESSION_SECRET`.
+The secret must contain `ZOCKERZEIT_ADMIN_PASSWORD` and `ZOCKERZEIT_SESSION_SECRET`, optionally `ZOCKERZEIT_NTFY_TOKEN`.
 
 {{ template "chart.maintainersSection" . }}
 {{ template "chart.sourcesSection" . }}

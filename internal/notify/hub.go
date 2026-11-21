@@ -15,7 +15,7 @@ import (
 const (
 	EventStart = "start" // a kid started playing
 	EventWarn  = "warn"  // play time almost used up
-	EventBlock = "block" // a device was blocked
+	EventOver  = "over"  // a kid keeps playing after the time is up
 )
 
 // Events lists all events with their default.
@@ -25,7 +25,7 @@ var Events = []struct {
 }{
 	{EventStart, "Ein Kind fängt an zu spielen", false},
 	{EventWarn, "Spielzeit fast aufgebraucht", true},
-	{EventBlock, "Ein Gerät wurde gesperrt", true},
+	{EventOver, "Ein Kind spielt weiter, obwohl die Zeit um ist", true},
 }
 
 // Channel kinds.

@@ -3,7 +3,7 @@
 <div class="page-head">
   <h1>Regeln</h1>
 </div>
-<p class="lead">Die Limits zählen bei Konsolen die Spielzeit laut Nintendo, bei Handys die Zeit mit Datenverkehr. Erreichte Limits sperren nichts. Außerhalb der Zeitfenster werden nur Geräte gesperrt, bei denen „Außerhalb der Zeitfenster sperren“ an ist, so entsteht die Nachtsperre. Zeiten schreibst du als <code>15:00-18:30</code>, mehrere mit Komma. Ein leeres Limit heißt: kein Limit.</p>
+<p class="lead">Die Limits zählen die Spielzeit laut Nintendo auf allen Konsolen des Kindes zusammen. Zockerzeit zeigt sie in der Übersicht und der Kinder-App und meldet sich, wenn die Zeit fast um ist oder weitergespielt wird. Durchgesetzt wird an der Konsole nur, was in der Nintendo-App eingestellt ist. Zeiten schreibst du als <code>15:00-18:30</code>, mehrere mit Komma. Ein leeres Limit heißt: kein Limit.</p>
 
 {{range $i, $p := $d.Profiles}}
 {{$new := eq $p.ID ""}}
@@ -19,49 +19,39 @@
     {{end}}
   </header>
 
-  <div class="rulesets">
-    {{range $d.Types}}
-    {{$t := .Key}}
-    {{$rs := $p.Rules $t}}
-    {{$collapsed := and (eq $t "phone") (not (index $d.HasPhone $p.ID))}}
-    {{if $collapsed}}<details class="ruleset-optional"><summary><span class="summary-title">Handy</span> <span class="muted">{{if $p.ID}}kein Handy zugeordnet, Regeln trotzdem bearbeiten{{else}}Regeln fürs Handy festlegen{{end}}</span></summary>{{end}}
-    <fieldset class="ruleset" data-type="{{$t}}">
-      <legend>{{.Label}}</legend>
-      <p class="muted">{{.Hint}}</p>
+  {{$rs := $p.Rules}}
+  <fieldset class="ruleset">
+    <legend class="visually-hidden">Zeiten und Limits</legend>
+    <div class="limits">
+      <label>Pro Tag
+        <span class="unit-input"><input type="number" name="daily" value="{{if $rs.DailyMinutes}}{{$rs.DailyMinutes}}{{end}}" min="0" max="1440" step="5" placeholder="kein Limit"><span>Min</span></span>
+      </label>
+      <label>Pro Woche
+        <span class="unit-input"><input type="number" name="weekly" value="{{if $rs.WeeklyMinutes}}{{$rs.WeeklyMinutes}}{{end}}" min="0" max="10080" step="15" placeholder="kein Limit"><span>Min</span></span>
+      </label>
+    </div>
 
-      <div class="limits">
-        <label>Pro Tag
-          <span class="unit-input"><input type="number" name="{{$t}}_daily" value="{{if $rs.DailyMinutes}}{{$rs.DailyMinutes}}{{end}}" min="0" max="1440" step="5" placeholder="kein Limit"><span>Min</span></span>
-        </label>
-        <label>Pro Woche
-          <span class="unit-input"><input type="number" name="{{$t}}_weekly" value="{{if $rs.WeeklyMinutes}}{{$rs.WeeklyMinutes}}{{end}}" min="0" max="10080" step="15" placeholder="kein Limit"><span>Min</span></span>
-        </label>
+    <div class="week">
+      <div class="day-row axis" aria-hidden="true">
+        <span></span><span></span>
+        <div class="axis-labels"><span>0</span><span>6</span><span>12</span><span>18</span><span>24 Uhr</span></div>
       </div>
-
-      <div class="week">
-        <div class="day-row axis" aria-hidden="true">
-          <span></span><span></span>
-          <div class="axis-labels"><span>0</span><span>6</span><span>12</span><span>18</span><span>24 Uhr</span></div>
-        </div>
-        {{range $d.Weekdays}}
-        {{$ws := index $rs.Schedule .}}
-        <div class="day-row">
-          <label class="day" for="w-{{$p.ID}}-{{$t}}-{{printf "%d" .}}">{{weekday .}}</label>
-          <input id="w-{{$p.ID}}-{{$t}}-{{printf "%d" .}}" class="win" name="{{$t}}_win_{{printf "%d" .}}" value="{{windows $ws}}" placeholder="gesperrt" data-day="{{printf "%d" .}}" autocomplete="off">
-          <div class="track" aria-hidden="true">{{range slots $ws}}<span class="slot" style="left: {{.Left}}%; width: {{.Width}}%" title="{{.Label}}"></span>{{end}}</div>
-        </div>
-        {{end}}
+      {{range $d.Weekdays}}
+      {{$ws := index $rs.Schedule .}}
+      <div class="day-row">
+        <label class="day" for="w-{{$p.ID}}-{{printf "%d" .}}">{{weekday .}}</label>
+        <input id="w-{{$p.ID}}-{{printf "%d" .}}" class="win" name="win_{{printf "%d" .}}" value="{{windows $ws}}" placeholder="kein Zocken" data-day="{{printf "%d" .}}" autocomplete="off">
+        <div class="track" aria-hidden="true">{{range slots $ws}}<span class="slot" style="left: {{.Left}}%; width: {{.Width}}%" title="{{.Label}}"></span>{{end}}</div>
       </div>
-      <button type="button" class="link copy-weekdays">Montag auf Dienstag bis Freitag übertragen</button>
-    </fieldset>
-    {{if $collapsed}}</details>{{end}}
-    {{end}}
-  </div>
+      {{end}}
+    </div>
+    <button type="button" class="link copy-weekdays">Montag auf Dienstag bis Freitag übertragen</button>
+  </fieldset>
 
   <footer class="profile-rules-foot">
     <button class="primary">{{if $new}}Profil anlegen{{else}}Speichern{{end}}</button>
     {{if not $new}}
-    <button class="link danger-text" formaction="/regeln/{{$p.ID}}/loeschen" formnovalidate onclick="return confirm('Profil {{$p.Name}} löschen? Zugeordnete Geräte werden entsperrt.')">Profil löschen</button>
+    <button class="link danger-text" formaction="/regeln/{{$p.ID}}/loeschen" formnovalidate onclick="return confirm('Profil {{$p.Name}} löschen? Seine Konsolen gehören dann niemandem mehr.')">Profil löschen</button>
     {{end}}
   </footer>
 </form>

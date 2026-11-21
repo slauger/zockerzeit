@@ -1,65 +1,62 @@
 {{define "content"}}
 {{with .Data}}
 <div class="page-head">
-  <h1>{{germanDate .PolledAt}}</h1>
-  <p class="muted">Stand {{clock .PolledAt}} Uhr</p>
+  <h1>{{germanDate .At}}</h1>
+  <p class="muted">Stand {{clock .At}} Uhr</p>
 </div>
 
 {{if not .Views}}
 <section class="empty">
   <h2>Noch niemand angelegt</h2>
-  <p>Leg unter <a href="/regeln">Regeln</a> ein Profil pro Kind an und ordne danach unter <a href="/geraete">Geräte</a> die Switches und Handys zu. Lass Zockerzeit dann ein paar Tage im Testmodus laufen und vergleich den <a href="/verlauf">Verlauf</a> mit dem, was du mitbekommst.</p>
+  <p>Leg unter <a href="/regeln">Regeln</a> ein Profil pro Kind an, verbinde unter <a href="/einstellungen/nintendo">Einstellungen → Nintendo</a> den Account aus der Jugendschutz-App und ordne unter <a href="/konsolen">Konsolen</a> jede Switch einem Kind zu.</p>
 </section>
+{{end}}
+
+{{with .Unowned}}
+<div class="banner warn">{{range $i, $c := .}}{{if $i}}, {{end}}<strong>{{$c.Name}}</strong>{{end}} {{if eq (len .) 1}}gehört{{else}}gehören{{end}} noch niemandem, die Spielzeit darauf zählt für kein Kind. <a href="/konsolen">Zuordnen</a></div>
 {{end}}
 
 <div class="players">
 {{range $i, $v := .Views}}
 {{$p := .Profile}}
-<section class="player {{if or .Console.Allowed .Phone.Allowed}}is-allowed{{else}}is-paused{{end}}" style="--player: var(--series-{{if eq $i 0}}1{{else}}2{{end}})">
+{{$st := .Status}}
+<section class="player {{if $st.Allowed}}is-allowed{{else}}is-paused{{end}}" style="--player: var(--series-{{if eq $i 0}}1{{else}}2{{end}})">
   <header class="player-head">
     <span class="avatar" aria-hidden="true">{{initial $p.Name}}</span>
     <h2>{{$p.Name}}</h2>
+    {{if .Playing}}<span class="playing"><span class="dot active" aria-hidden="true"></span>spielt gerade</span>{{end}}
   </header>
 
-  <div class="meters">
-    {{range $t := deviceTypes}}
-    {{if or ($v.HasType $t) (eq $t "console")}}
-    {{$st := $v.Status $t}}
-    <div class="meter-block {{if $st.Allowed}}is-allowed{{else}}is-paused{{end}}">
-      <h3>{{typeLabel $t}}</h3>
-      {{if $st.Allowed}}
-        <p class="time">{{remaining $st}}</p>
-        <p class="time-caption">{{if $st.LimitToday}}noch spielbar{{else}}frei, kein Tageslimit{{end}}</p>
-      {{else}}
-        <p class="time">Pause</p>
-        <p class="time-caption">{{$st.Reason}}</p>
-      {{end}}
-      {{with cells $st}}
-      <div class="energy" role="img" aria-label="{{dur $st.UsedToday}} von {{$st.LimitToday}} Minuten heute genutzt">
-        {{range .}}<span class="cell {{.}}"></span>{{end}}
-      </div>
-      {{end}}
-      <dl class="budget">
-        <div><dt>Heute</dt><dd>{{dur $st.UsedToday}}{{if $st.LimitToday}} von {{$st.LimitToday}} Min{{end}}</dd></div>
-        <div><dt>Woche</dt><dd>{{dur $st.UsedWeek}}{{if $st.LimitWeek}} von {{dur (minutes $st.LimitWeek)}}{{end}}</dd></div>
-      </dl>
-      {{if $st.Allowed}}<p class="reason">{{$st.Reason}}</p>{{end}}
+  <div class="meter-block {{if $st.Allowed}}is-allowed{{else}}is-paused{{end}}">
+    {{if $st.Allowed}}
+      <p class="time">{{remaining $st}}</p>
+      <p class="time-caption">{{if $st.LimitToday}}noch spielbar{{else}}frei, kein Tageslimit{{end}}</p>
+    {{else}}
+      <p class="time">Pause</p>
+      <p class="time-caption">{{$st.Reason}}</p>
+    {{end}}
+    {{with cells $st}}
+    <div class="energy" role="img" aria-label="{{dur $st.UsedToday}} von {{$st.LimitToday}} Minuten heute gespielt">
+      {{range .}}<span class="cell {{.}}"></span>{{end}}
     </div>
     {{end}}
-    {{end}}
+    <dl class="budget">
+      <div><dt>Heute</dt><dd>{{dur $st.UsedToday}}{{if $st.LimitToday}} von {{$st.LimitToday}} Min{{end}}</dd></div>
+      <div><dt>Woche</dt><dd>{{dur $st.UsedWeek}}{{if $st.LimitWeek}} von {{dur (minutes $st.LimitWeek)}}{{end}}</dd></div>
+    </dl>
+    {{if $st.Allowed}}<p class="reason">{{$st.Reason}}</p>{{end}}
   </div>
 
   {{with index $.Data.Nintendo $p.ID}}{{if .Minutes}}
-  <p class="nintendo-line">Laut Nintendo heute <strong>{{dur (minutes .Minutes)}}</strong> gespielt{{range $i, $x := .Parts}}{{if eq $i 0}}: {{else}}, {{end}}{{$x.Console}} {{dur (minutes $x.Minutes)}}{{end}}</p>
+  <p class="nintendo-line">Heute gespielt{{range $i, $x := .Parts}}{{if eq $i 0}}: {{else}}, {{end}}{{$x.Console}} <strong>{{dur (minutes $x.Minutes)}}</strong>{{end}}</p>
   {{end}}{{end}}
 
-  {{if .Devices}}
+  {{if .Consoles}}
   <ul class="chips">
-    {{range .Devices}}
-    <li><a href="/geraet/{{.Device.MAC}}" class="chip {{if .Blocked}}blocked{{else if and .Active (eq .Device.Type "phone")}}active{{else if .Online}}online{{else}}offline{{end}}">
-      <span class="dot" aria-hidden="true"></span>
-      <span class="chip-name">{{.Device.Name}}</span>
-      <span class="chip-state">{{if .Blocked}}{{if eq .Device.Blocker "internet"}}Internet gesperrt{{else}}gesperrt{{end}}{{else if and .Active (eq .Device.Type "phone")}}aktiv{{if .APName}}, {{.APName}}{{end}}{{else if .Online}}online{{if .APName}}, {{.APName}}{{end}}{{else}}aus{{end}}{{if ne .AttributedTo $p.ID}}, für {{.AttributedTo}}{{end}}{{if and $.DryRun (ne .Blocked .WantBlocked)}}, würde {{if .WantBlocked}}sperren{{else}}freigeben{{end}}{{end}}</span>
+    {{range .Consoles}}
+    <li><a href="/konsolen#{{.DeviceID}}" class="chip">
+      <span class="chip-name">{{.Name}}</span>
+      <span class="chip-state">{{if ne .HeldBy $p.ID}}gerade bei {{index $.Data.Names .HeldBy}}{{else if ne .ProfileID $p.ID}}geliehen bis {{clock .LentUntil}} Uhr{{else}}{{.Model}}{{end}}</span>
     </a></li>
     {{end}}
   </ul>
@@ -69,7 +66,7 @@
   <ul class="overrides">
     {{range .Overrides}}
     <li>
-      <span>{{.Note}}, bis {{clock .Until}} Uhr</span>
+      <span>{{.Note}}{{if ne .Kind "bonus"}}, bis {{clock .Until}} Uhr{{end}}</span>
       <form method="post" action="/aktion/{{.ID}}/beenden"><button class="link">Beenden</button></form>
     </li>
     {{end}}
@@ -78,19 +75,11 @@
 
   <div class="controls">
     <div class="control-group">
-      <h3>Mehr Zeit</h3>
+      <h3>Mehr Zeit für heute</h3>
       <div class="buttons">
         {{range $m := (list 5 15 30)}}
         <form method="post" action="/aktion"><input type="hidden" name="action" value="bonus"><input type="hidden" name="profile" value="{{$p.ID}}"><input type="hidden" name="minutes" value="{{$m}}"><button>+{{$m}} Min</button></form>
         {{end}}
-        <form method="post" action="/aktion"><input type="hidden" name="action" value="allow"><input type="hidden" name="profile" value="{{$p.ID}}"><input type="hidden" name="minutes" value="30"><button title="Gilt auch außerhalb der Zeitfenster und über dem Limit">30 Min frei</button></form>
-      </div>
-    </div>
-    <div class="control-group">
-      <h3>Pause</h3>
-      <div class="buttons">
-        <form method="post" action="/aktion"><input type="hidden" name="action" value="lock"><input type="hidden" name="profile" value="{{$p.ID}}"><input type="hidden" name="minutes" value="60"><button class="danger">1 Std</button></form>
-        <form method="post" action="/aktion"><input type="hidden" name="action" value="lock"><input type="hidden" name="profile" value="{{$p.ID}}"><input type="hidden" name="minutes" value="0"><button class="danger strong">Bis morgen</button></form>
       </div>
     </div>
   </div>

@@ -80,7 +80,7 @@ func (s *Server) kidStats(p store.Profile, rng string, now time.Time) kidStats {
 	switch st.Range {
 	case "7", "30":
 		st.PerDay = st.Minutes / days
-		st.Limit = p.Console.DailyMinutes
+		st.Limit = p.Rules.DailyMinutes
 		for d := from; !d.After(today); d = d.AddDate(0, 0, 1) {
 			m := perDay[d.Format("2006-01-02")]
 			b := kidBar{
@@ -125,7 +125,7 @@ func (s *Server) kidStats(p store.Profile, rng string, now time.Time) kidStats {
 
 // kidWindow describes today's console time windows, "" when there are none.
 func kidWindow(p store.Profile, now time.Time) string {
-	ws := p.Console.Schedule[now.Weekday()]
+	ws := p.Rules.Schedule[now.Weekday()]
 	parts := make([]string, 0, len(ws))
 	for _, w := range ws {
 		parts = append(parts, rules.FormatClock(w.Start)+" bis "+rules.FormatClock(w.End))

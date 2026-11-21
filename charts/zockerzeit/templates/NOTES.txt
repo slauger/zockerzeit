@@ -8,11 +8,9 @@ Open via port-forward:
   http://localhost:8080/
 {{- end }}
 
-{{- if .Values.config.dryRun }}
 
-Test mode is ON: play time is recorded, nothing is blocked.
-Switch it off with --set config.dryRun=false once the history looks right.
-{{- end }}
+Connect the Nintendo account of the parental controls app under
+Einstellungen -> Nintendo and assign each console to a kid under Konsolen.
 {{- if and (not .Values.secret.existingSecret) (not .Values.secret.adminPassword) }}
 
 WARNING: no admin password set, the parent UI is open to everyone on the network.

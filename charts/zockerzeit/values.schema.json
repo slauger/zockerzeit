@@ -35,21 +35,6 @@
         "timezone": {
           "type": "string"
         },
-        "pollInterval": {
-          "type": "string",
-          "pattern": "^[0-9]+(s|m|h)$"
-        },
-        "dryRun": {
-          "type": "boolean"
-        },
-        "retentionDays": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "minBytesPerMinute": {
-          "type": "integer",
-          "minimum": 0
-        },
         "warnMinutes": {
           "type": "array",
           "items": {
@@ -57,35 +42,10 @@
             "minimum": 1
           }
         },
-        "unifi": {
-          "type": "object",
-          "properties": {
-            "url": {
-              "type": "string"
-            },
-            "site": {
-              "type": "string"
-            },
-            "unifiOS": {
-              "type": "boolean"
-            },
-            "insecureSkipVerify": {
-              "type": "boolean"
-            }
-          }
-        },
         "notify": {
           "type": "object",
           "properties": {
             "ntfyURL": {
-              "type": "string"
-            }
-          }
-        },
-        "fritzbox": {
-          "type": "object",
-          "properties": {
-            "url": {
               "type": "string"
             }
           }
@@ -98,15 +58,6 @@
         "existingSecret": {
           "type": "string"
         },
-        "unifiUsername": {
-          "type": "string"
-        },
-        "unifiPassword": {
-          "type": "string"
-        },
-        "unifiApiKey": {
-          "type": "string"
-        },
         "adminPassword": {
           "type": "string"
         },
@@ -114,12 +65,6 @@
           "type": "string"
         },
         "ntfyToken": {
-          "type": "string"
-        },
-        "fritzboxUsername": {
-          "type": "string"
-        },
-        "fritzboxPassword": {
           "type": "string"
         }
       }

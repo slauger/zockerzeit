@@ -1,6 +1,3 @@
-{{- if not .Values.config.unifi.url }}
-{{- fail "config.unifi.url is required" }}
-{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:

@@ -20,7 +20,7 @@ jobs:
         run: helm lint charts/zockerzeit
 
       - name: Helm template
-        run: helm template test charts/zockerzeit --set config.unifi.url=https://unifi:8443
+        run: helm template test charts/zockerzeit
 
       - name: Helm unittest
         run: helm unittest charts/zockerzeit

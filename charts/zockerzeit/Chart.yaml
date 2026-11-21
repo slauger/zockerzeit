@@ -1,6 +1,6 @@
 apiVersion: v2
 name: zockerzeit
-description: Play time dashboard for parents with Nintendo Switch play time, UniFi presence and optional blocking
+description: Play time dashboard for parents based on the Nintendo Switch parental controls
 type: application
 version: 0.0.0
 appVersion: "0.0.0"
@@ -13,10 +13,9 @@ maintainers:
     email: simon@lauger.de
     url: https://lauger.de
 keywords:
-  - unifi
   - parental-control
   - screen-time
   - nintendo-switch
-  - fritzbox
+  - self-hosted
 annotations:
   artifacthub.io/license: Apache-2.0

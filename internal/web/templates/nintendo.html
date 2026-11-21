@@ -4,7 +4,7 @@
 <div class="page-head">
   <h1>Nintendo</h1>
 </div>
-<p class="lead">Spielzeit direkt aus der Nintendo-Jugendschutz-App. Ordne jede Konsole einem Gerät in Zockerzeit zu: Was darauf gespielt wird, zählt für das Kind, dem das Gerät gehört, egal mit welchem Benutzer. Hat ein anderes Kind die Konsole, drückst du auf der Geräteseite „Ist jetzt bei …“. Die Daten kommen alle zehn Minuten, aber nur, wenn die Konsole online ist.</p>
+<p class="lead">Zockerzeit holt alle zehn Minuten Konsolen, Benutzer, Spiele und Spielzeit aus der Nintendo-Jugendschutz-App. Eine Konsole meldet nur, wenn sie online ist, offline Gespieltes kommt beim nächsten Mal nach. Welchem Kind eine Konsole gehört, stellst du unter <a href="/konsolen">Konsolen</a> ein.</p>
 
 {{if not $d.Enabled}}
 <div class="banner warn">Die Nintendo-Anbindung ist nicht eingerichtet: Sie braucht ein festes <code>ZOCKERZEIT_SESSION_SECRET</code>, mit dem die Zugangsdaten verschlüsselt werden.</div>
@@ -27,48 +27,25 @@
 
   {{if not .Devices}}<p class="muted">Keine Konsolen mit diesem Account verknüpft.</p>{{end}}
   {{range .Devices}}
-  {{$dev := .}}
   <div class="nintendo-device">
     <div class="nintendo-device-head">
       <div>
-        <h3>{{.Label}} <span class="muted">{{.Model}}</span></h3>
-        <p class="muted">Heute {{dur (minutes .Today)}}{{if .Owner}}, zählt für <strong>{{.Owner}}</strong>{{end}}</p>
+        <h3>{{.Name}} <span class="muted">{{.Model}}</span></h3>
+        <p class="muted">Heute {{dur (minutes .Today)}}, {{if .Owner}}gehört <strong>{{.Owner}}</strong>{{else}}gehört noch niemandem{{end}}</p>
       </div>
-      <form method="post" action="/einstellungen/nintendo/konsole" class="inline-form">
-        <input type="hidden" name="device_id" value="{{.DeviceID}}">
-        <label>Gerät in Zockerzeit
-          <select name="mac" onchange="this.form.submit()">
-            <option value="">nicht zugeordnet</option>
-            {{range $d.Consoles}}<option value="{{.MAC}}" {{if eq .MAC $dev.DeviceMAC}}selected{{end}}>{{.Name}}</option>{{end}}
-          </select>
-        </label>
-      </form>
+      <a class="button" href="/konsolen#{{.DeviceID}}">{{if .Owner}}Ändern{{else}}Zuordnen{{end}}</a>
     </div>
     {{if .Players}}
     <ul class="nintendo-players">
       {{range .Players}}
-      {{$pl := .}}
       <li>
         {{if .ImageURI}}<img src="{{.ImageURI}}" alt="" width="40" height="40">{{else}}<span class="avatar small" aria-hidden="true">{{initial .Nickname}}</span>{{end}}
         <span class="player-name"><strong>{{.Nickname}}</strong><span class="muted">heute {{dur (minutes .Today)}}{{if .Games}}: {{range $i, $g := .Games}}{{if $i}}, {{end}}{{$g}}{{end}}{{end}}</span></span>
-        {{if $dev.Owner}}
-        <span class="muted small">zählt für {{$dev.Owner}}</span>
-        {{else}}
-        <form method="post" action="/einstellungen/nintendo/spieler" class="inline-form">
-          <input type="hidden" name="player_id" value="{{.PlayerID}}">
-          <label>gehört zu
-            <select name="profile" onchange="this.form.submit()">
-              <option value="">niemandem</option>
-              {{range $d.Profiles}}<option value="{{.ID}}" {{if eq .ID $pl.ProfileID}}selected{{end}}>{{.Name}}</option>{{end}}
-            </select>
-          </label>
-        </form>
-        {{end}}
       </li>
       {{end}}
     </ul>
     {{else}}
-    <p class="muted">Noch keine Spieler gesehen. Neue Konsolen liefern erst Daten, wenn auf ihnen gespielt wurde.</p>
+    <p class="muted">Noch keine Benutzer gesehen. Neue Konsolen liefern erst Daten, wenn auf ihnen gespielt wurde.</p>
     {{end}}
   </div>
   {{end}}

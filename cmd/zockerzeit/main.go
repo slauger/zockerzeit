@@ -1,5 +1,5 @@
-// Command zockerzeit tracks and limits play time by blocking devices on a
-// UniFi WLAN.
+// Command zockerzeit shows the kids' play time from the Nintendo Switch
+// parental controls against the rules of each kid.
 package main
 
 import (
@@ -18,12 +18,10 @@ import (
 	"github.com/slauger/zockerzeit/internal/config"
 	"github.com/slauger/zockerzeit/internal/demo"
 	"github.com/slauger/zockerzeit/internal/engine"
-	"github.com/slauger/zockerzeit/internal/fritzbox"
 	"github.com/slauger/zockerzeit/internal/nintendo"
 	"github.com/slauger/zockerzeit/internal/notify"
 	"github.com/slauger/zockerzeit/internal/secret"
 	"github.com/slauger/zockerzeit/internal/store"
-	"github.com/slauger/zockerzeit/internal/unifi"
 	"github.com/slauger/zockerzeit/internal/web"
 )
 
@@ -38,7 +36,7 @@ func main() {
 
 func run() error {
 	configPath := flag.String("config", "config.yaml", "path to the configuration file")
-	demoMode := flag.Bool("demo", false, "run with a simulated UniFi controller and sample data")
+	demoMode := flag.Bool("demo", false, "run with sample data instead of a Nintendo account")
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
 
@@ -54,7 +52,6 @@ func run() error {
 	if *demoMode {
 		cfg = config.Default()
 		cfg.Database = "zockerzeit-demo.db"
-		cfg.DryRun = false
 		if v := os.Getenv("ZOCKERZEIT_LISTEN"); v != "" {
 			cfg.Listen = v
 		}
@@ -69,34 +66,14 @@ func run() error {
 	}
 	defer func() { _ = st.Close() }()
 
-	var ctrl engine.Controller
 	if *demoMode {
-		log.Warn("demo mode: using a simulated UniFi controller")
-		if err := demo.Seed(st, time.Now().In(loc)); err != nil {
+		log.Warn("demo mode: sample data, no Nintendo account")
+		if err := demo.Seed(st); err != nil {
 			return fmt.Errorf("seed demo data: %w", err)
 		}
 		if err := demo.SeedNintendo(st, time.Now().In(loc)); err != nil {
 			return fmt.Errorf("seed demo data: %w", err)
 		}
-		ctrl = demo.NewController()
-	} else {
-		ctrl, err = unifi.New(unifi.Config{
-			URL: cfg.UniFi.URL, Site: cfg.UniFi.Site, UniFiOS: cfg.UniFi.UniFiOS, APIKey: cfg.UniFi.APIKey,
-			Username: cfg.UniFi.Username, Password: cfg.UniFi.Password, InsecureSkipVerify: cfg.UniFi.InsecureSkipVerify,
-		})
-		if err != nil {
-			return err
-		}
-	}
-
-	var internet engine.InternetBlocker
-	if cfg.Fritzbox.URL != "" && !*demoMode {
-		fb, err := fritzbox.New(fritzbox.Config{URL: cfg.Fritzbox.URL, Username: cfg.Fritzbox.Username, Password: cfg.Fritzbox.Password})
-		if err != nil {
-			return err
-		}
-		internet = fb
-		log.Info("internet blocking via FRITZ!Box enabled", "url", cfg.Fritzbox.URL)
 	}
 
 	var static notify.Notifier
@@ -111,10 +88,7 @@ func run() error {
 	}
 	hub := notify.NewHub(st, notifyBox, static, log)
 
-	eng := engine.New(st, ctrl, hub, engine.Options{
-		Interval: cfg.PollInterval, DryRun: cfg.DryRun, MinBytesPerMinute: cfg.MinBytesPerMinute,
-		Location: loc, WarnMinutes: cfg.WarnMinutes, RetentionDays: cfg.RetentionDays, Internet: internet,
-	}, log)
+	eng := engine.New(st, hub, engine.Options{Location: loc, WarnMinutes: cfg.WarnMinutes}, log)
 
 	if cfg.Auth.AdminPassword == "" {
 		log.Warn("no admin password configured: the parent UI is open to everyone on the network")
@@ -158,7 +132,7 @@ func run() error {
 	}
 	errCh := make(chan error, 1)
 	go func() {
-		log.Info("listening", "addr", cfg.Listen, "version", version, "dryRun", cfg.DryRun)
+		log.Info("listening", "addr", cfg.Listen, "version", version)
 		errCh <- srv.ListenAndServe()
 	}()
 

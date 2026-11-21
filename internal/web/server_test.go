@@ -40,11 +40,11 @@ func newEnv(t *testing.T, password string) *env {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	if err := demo.Seed(st, time.Now().In(berlin)); err != nil {
+	if err := demo.Seed(st); err != nil {
 		t.Fatal(err)
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	eng := engine.New(st, demo.NewController(), nil, engine.Options{Location: berlin, MinBytesPerMinute: 1}, log)
+	eng := engine.New(st, nil, engine.Options{Location: berlin}, log)
 	h, err := New(st, eng, Options{AdminPassword: password, SessionSecret: "s3cret", Version: "test"}, log)
 	if err != nil {
 		t.Fatal(err)
@@ -53,6 +53,14 @@ func newEnv(t *testing.T, password string) *env {
 	t.Cleanup(srv.Close)
 	jar, _ := cookiejar.New(nil)
 	return &env{t: t, store: st, srv: srv, client: &http.Client{Jar: jar}}
+}
+
+// nintendo adds the demo account with one console per kid.
+func (e *env) nintendo() {
+	e.t.Helper()
+	if err := demo.SeedNintendo(e.store, time.Now().In(berlin)); err != nil {
+		e.t.Fatal(err)
+	}
 }
 
 func (e *env) get(path string) (int, string) {
@@ -79,15 +87,18 @@ func (e *env) post(path string, form url.Values) (int, string) {
 
 func TestPagesRender(t *testing.T) {
 	e := newEnv(t, "")
+	if _, body := e.get("/konsolen"); !strings.Contains(body, "Noch keine Konsolen") {
+		t.Error("empty consoles page")
+	}
+	e.nintendo()
 	for path, want := range map[string]string{
-		"/":                              "Mehr Zeit",
-		"/geraet/98:b6:e9:00:00:01":      "Ist jetzt bei Mia",
-		"/verlauf":                       "Im WLAN pro Tag",
+		"/":                              "Mehr Zeit für heute",
+		"/konsolen":                      "Ist jetzt bei Mia",
+		"/verlauf":                       "Spielzeit pro Tag",
 		"/regeln":                        "Neues Profil",
-		"/geraete":                       "Switch Kinderzimmer",
 		"/protokoll":                     "Protokoll",
-		"/einstellungen":                 "Nur Internet (FRITZ!Box)",
-		"/protokoll?art=online":          "Online und offline",
+		"/protokoll?art=zeit":            "Zeit um",
+		"/einstellungen":                 "ZOCKERZEIT_SESSION_SECRET",
 		"/kind/max":                      "Hallo Max!",
 		"/kind/max/manifest.webmanifest": `"start_url":"/kind/max"`,
 		"/kind/sw.js":                    "zockerzeit-kid-v1",
@@ -99,9 +110,6 @@ func TestPagesRender(t *testing.T) {
 		if code != http.StatusOK || !strings.Contains(body, want) {
 			t.Errorf("%s: status %d, missing %q", path, code, want)
 		}
-	}
-	if code, _ := e.get("/geraet/00:00:00:00:00:00"); code != http.StatusNotFound {
-		t.Errorf("unknown device: %d", code)
 	}
 	if code, _ := e.get("/kind/niemand/manifest.webmanifest"); code != http.StatusNotFound {
 		t.Errorf("unknown kid manifest: %d", code)
@@ -179,17 +187,15 @@ func TestWrongPasswordAndForgedCookie(t *testing.T) {
 
 func TestActions(t *testing.T) {
 	e := newEnv(t, "")
+	e.nintendo()
 	e.client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	resp, err := e.client.PostForm(e.srv.URL+"/aktion", url.Values{"action": {"lockdevice"}, "device": {"3a:10:5f:00:00:04"}, "minutes": {"30"}, "back": {"/geraet/3a:10:5f:00:00:04"}})
+	resp, err := e.client.PostForm(e.srv.URL+"/aktion", url.Values{"action": {"release"}, "profile": {"max"}, "device": {"demo-switch-2"}, "minutes": {"30"}, "back": {"/konsolen#demo-switch-2"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	_ = resp.Body.Close()
-	if loc := resp.Header.Get("Location"); !strings.HasPrefix(loc, "/geraet/3a:10:5f:00:00:04?ok=") {
-		t.Fatalf("expected redirect back to the device page, got %q", loc)
-	}
-	if err := e.store.EndOverride(1, time.Now()); err != nil {
-		t.Fatal(err)
+	if loc := resp.Header.Get("Location"); !strings.HasPrefix(loc, "/konsolen?ok=") || !strings.HasSuffix(loc, "#demo-switch-2") {
+		t.Fatalf("expected redirect back to the console, got %q", loc)
 	}
 	for _, back := range []string{"//evil.example", "https://evil.example"} {
 		resp, err := e.client.PostForm(e.srv.URL+"/aktion", url.Values{"action": {"nope"}, "back": {back}})
@@ -201,43 +207,26 @@ func TestActions(t *testing.T) {
 			t.Fatalf("open redirect to %q", loc)
 		}
 	}
-	for _, kind := range []string{"unlockdevice-next", "lockdevice-next"} {
-		resp, err := e.client.PostForm(e.srv.URL+"/aktion", url.Values{"action": {kind}, "device": {"98:b6:e9:00:00:02"}, "back": {"/geraet/98:b6:e9:00:00:02"}})
-		if err != nil {
-			t.Fatal(err)
-		}
-		_ = resp.Body.Close()
-		if loc := resp.Header.Get("Location"); !strings.Contains(loc, "ok=") {
-			t.Fatalf("%s failed: %q", kind, loc)
-		}
-	}
-	ovs, _ := e.store.ActiveOverrides(time.Now(), berlin)
-	for _, o := range ovs {
-		if o.DeviceMAC == "98:b6:e9:00:00:02" {
-			_ = e.store.EndOverride(o.ID, time.Now())
-			if !o.Until.After(time.Now()) {
-				t.Fatalf("override %s ends in the past", o.Kind)
-			}
-		}
-	}
 	e.client.CheckRedirect = nil
-	cases := []url.Values{
+
+	for _, form := range []url.Values{
 		{"action": {"bonus"}, "profile": {"max"}, "minutes": {"15"}},
-		{"action": {"allow"}, "profile": {"max"}, "minutes": {"30"}},
-		{"action": {"lock"}, "profile": {"mia"}, "minutes": {"0"}},
-		{"action": {"release"}, "profile": {"mia"}, "device": {"98:b6:e9:00:00:01"}, "minutes": {"30"}},
-		{"action": {"release"}, "profile": {"mia"}, "device": {"98:b6:e9:00:00:02"}, "minutes": {"0"}},
-		{"action": {"lockdevice"}, "device": {"3a:10:5f:00:00:03"}, "minutes": {"60"}},
-	}
-	for _, form := range cases {
+		{"action": {"bonus"}, "profile": {"mia"}, "minutes": {"5"}},
+		{"action": {"release"}, "profile": {"mia"}, "device": {"demo-switch-1"}, "minutes": {"0"}},
+	} {
 		code, body := e.post("/aktion", form)
 		if code != http.StatusOK || strings.Contains(body, `class="banner err"`) {
 			t.Fatalf("action %v failed: %d", form, code)
 		}
 	}
-	ovs, _ = e.store.ActiveOverrides(time.Now(), berlin)
-	if len(ovs) != 6 {
-		t.Fatalf("expected 6 overrides, got %d", len(ovs))
+	ovs, _ := e.store.ActiveOverrides(time.Now(), berlin)
+	if len(ovs) != 4 {
+		t.Fatalf("expected 4 overrides, got %d", len(ovs))
+	}
+	for _, o := range ovs {
+		if o.Kind == store.KindRelease && (o.DeviceID == "" || !o.Until.After(time.Now())) {
+			t.Fatalf("bad release: %+v", o)
+		}
 	}
 
 	var status struct {
@@ -248,12 +237,15 @@ func TestActions(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, p := range status.Profiles {
-		if p.Profile.ID == "mia" && p.Console.Allowed {
-			t.Fatal("mia should be locked")
+		if p.Profile.ID == "max" && (p.Status.LimitToday != 105 || len(p.Consoles) != 2) {
+			t.Fatalf("max: %+v", p)
 		}
-		if p.Profile.ID == "max" && !p.Console.Allowed {
-			t.Fatal("max should be allowed")
-		}
+	}
+	if _, body := e.get("/"); !strings.Contains(body, "gerade bei Mia") || !strings.Contains(body, "geliehen bis") {
+		t.Fatal("lent consoles missing on the dashboard")
+	}
+	if _, body := e.get("/konsolen"); !strings.Contains(body, "Gerade bei <strong>Max</strong>") || !strings.Contains(body, "Zurück an Mia") {
+		t.Fatal("lent console missing on the consoles page")
 	}
 
 	code, _ := e.post("/aktion/"+strconv.FormatInt(ovs[0].ID, 10)+"/beenden", nil)
@@ -269,8 +261,9 @@ func TestActions(t *testing.T) {
 
 	for _, bad := range []url.Values{
 		{"action": {"explode"}},
-		{"action": {"allow"}, "profile": {"max"}, "minutes": {"0"}},
+		{"action": {"bonus"}, "profile": {"max"}, "minutes": {"0"}},
 		{"action": {"release"}, "profile": {"mia"}, "minutes": {"10"}},
+		{"action": {"release"}, "profile": {"niemand"}, "device": {"demo-switch-1"}, "minutes": {"10"}},
 		{"action": {"bonus"}, "minutes": {"10"}},
 	} {
 		if _, body := e.post("/aktion", bad); !strings.Contains(body, "banner err") {
@@ -279,12 +272,11 @@ func TestActions(t *testing.T) {
 	}
 }
 
-func TestProfilesAndDevices(t *testing.T) {
+func TestProfilesAndConsoles(t *testing.T) {
 	e := newEnv(t, "")
 	form := url.Values{
-		"name": {"Großer Bruder"}, "console_daily": {"60"}, "console_weekly": {"300"},
-		"console_win_1": {"15:00-17:00"}, "console_win_6": {"10:00-12:00, 14:00-18:00"},
-		"phone_daily": {""}, "phone_win_0": {"07:00-20:30"},
+		"name": {"Großer Bruder"}, "daily": {"60"}, "weekly": {"300"},
+		"win_1": {"15:00-17:00"}, "win_6": {"10:00-12:00, 14:00-18:00"},
 	}
 	if _, body := e.post("/regeln", form); !strings.Contains(body, "gespeichert") {
 		t.Fatal("saving profile failed")
@@ -293,8 +285,7 @@ func TestProfilesAndDevices(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Console.DailyMinutes != 60 || len(p.Console.Schedule[time.Saturday]) != 2 || len(p.Console.Schedule[time.Sunday]) != 0 ||
-		p.Phone.DailyMinutes != 0 || len(p.Phone.Schedule[time.Sunday]) != 1 {
+	if p.Rules.DailyMinutes != 60 || p.Rules.WeeklyMinutes != 300 || len(p.Rules.Schedule[time.Saturday]) != 2 || len(p.Rules.Schedule[time.Sunday]) != 0 {
 		t.Fatalf("unexpected profile: %+v", p)
 	}
 	if _, body := e.post("/regeln", form); !strings.Contains(body, "gibt es schon") {
@@ -302,59 +293,56 @@ func TestProfilesAndDevices(t *testing.T) {
 	}
 	for _, bad := range []url.Values{
 		{"name": {""}},
-		{"name": {"X"}, "console_win_1": {"18:00-15:00"}},
-		{"name": {"Y"}, "console_daily": {"-5"}},
-		{"name": {"Z"}, "phone_weekly": {"viel"}},
-		{"name": {"W"}, "phone_win_3": {"abends"}},
+		{"name": {"X"}, "win_1": {"18:00-15:00"}},
+		{"name": {"Y"}, "daily": {"-5"}},
+		{"name": {"Z"}, "weekly": {"viel"}},
 	} {
 		if _, body := e.post("/regeln", bad); !strings.Contains(body, "banner err") {
 			t.Errorf("expected error for %v", bad)
 		}
 	}
 
-	dev := url.Values{"mac": {"AA-BB-CC-DD-EE-FF"}, "name": {"Switch Oma"}, "profile": {"grosser-bruder"}, "mode": {"online"}, "shared": {"on"}, "blocker": {"internet"}, "schedule_block": {"on"}}
-	if _, body := e.post("/geraete", dev); !strings.Contains(body, "gespeichert") {
-		t.Fatal("saving device failed")
+	// Handing a console to another kid moves its play time, past included.
+	e.nintendo()
+	before, _ := e.store.NintendoMinutes("max", "2000-01-01", "2100-01-01")
+	if _, body := e.post("/konsolen/demo-switch-1", url.Values{"name": {"Switch Oma"}, "profile": {"grosser-bruder"}}); !strings.Contains(body, "Switch Oma gehört jetzt Großer Bruder") {
+		t.Fatal("changing the owner failed")
 	}
-	devs, _ := e.store.Devices()
-	found := false
-	for _, d := range devs {
-		if d.MAC == "aa:bb:cc:dd:ee:ff" && d.Shared && d.ProfileID == "grosser-bruder" && d.Blocker == store.BlockInternet && d.ScheduleBlock {
-			found = true
-		}
+	moved, _ := e.store.NintendoMinutes("grosser-bruder", "2000-01-01", "2100-01-01")
+	after, _ := e.store.NintendoMinutes("max", "2000-01-01", "2100-01-01")
+	if moved == 0 || after >= before {
+		t.Fatalf("play time not moved: before=%d after=%d moved=%d", before, after, moved)
 	}
-	if !found {
-		t.Fatalf("device not stored: %+v", devs)
+	if _, body := e.post("/konsolen/demo-switch-1", url.Values{"name": {"Switch Oma"}, "profile": {"grosser-bruder"}}); !strings.Contains(body, "Switch Oma gespeichert") {
+		t.Fatal("renaming failed")
 	}
-	// Switching back to WLAN blocking lifts the internet block first.
-	dev.Set("blocker", "wlan")
-	if _, body := e.post("/geraete", dev); !strings.Contains(body, "gespeichert") {
-		t.Fatal("switching the blocker failed")
+	if _, body := e.post("/konsolen/demo-switch-1", url.Values{"name": {""}, "profile": {""}}); !strings.Contains(body, "gehört jetzt niemandem") {
+		t.Fatal("removing the owner failed")
 	}
-	for _, bad := range []url.Values{
-		{"mac": {"nope"}, "profile": {"max"}},
-		{"mac": {"aa:bb:cc:dd:ee:zz"}, "profile": {"max"}},
-		{"mac": {"aa:bb:cc:dd:ee:f"}, "profile": {"max"}},
-		{"mac": {"aa:bb:cc:dd:ee:01"}, "profile": {"nobody"}},
+	if _, body := e.get("/"); !strings.Contains(body, "noch niemandem") {
+		t.Fatal("unowned console not shown on the dashboard")
+	}
+	for path, form := range map[string]url.Values{
+		"/konsolen/nope":          {"profile": {"max"}},
+		"/konsolen/demo-switch-1": {"profile": {"niemand"}},
 	} {
-		if _, body := e.post("/geraete", bad); !strings.Contains(body, "banner err") {
-			t.Errorf("expected error for %v", bad)
+		if _, body := e.post(path, form); !strings.Contains(body, "banner err") {
+			t.Errorf("expected error for %s %v", path, form)
 		}
 	}
-	if _, body := e.post("/geraete/aa:bb:cc:dd:ee:ff/loeschen", nil); !strings.Contains(body, "entfernt") {
-		t.Fatal("deleting device failed")
-	}
-	if _, body := e.post("/regeln/grosser-bruder/loeschen", nil); !strings.Contains(body, "gelöscht") {
+
+	if _, body := e.post("/regeln/mia/loeschen", nil); !strings.Contains(body, "gelöscht") {
 		t.Fatal("deleting profile failed")
 	}
-	if _, body := e.post("/regeln/max/loeschen", nil); !strings.Contains(body, "gelöscht") {
-		t.Fatal("deleting profile with devices failed")
+	if c, _ := e.store.NintendoDevice("demo-switch-2"); c.ProfileID != "" {
+		t.Fatalf("console of a deleted kid still owned: %+v", c)
 	}
 }
 
 func TestStatsAndKidAPI(t *testing.T) {
 	e := newEnv(t, "")
-	code, body := e.get("/api/stats?profile=max&type=console&days=7&day=" + time.Now().In(berlin).AddDate(0, 0, -1).Format("2006-01-02"))
+	e.nintendo()
+	code, body := e.get("/api/stats?profile=max&days=7")
 	if code != http.StatusOK {
 		t.Fatalf("stats: %d", code)
 	}
@@ -362,32 +350,15 @@ func TestStatsAndKidAPI(t *testing.T) {
 	if err := json.Unmarshal([]byte(body), &st); err != nil {
 		t.Fatal(err)
 	}
-	if st.Limit != 0 || len(st.Daily.Labels) != 7 || len(st.Devices) == 0 || len(st.Locations) == 0 {
-		t.Fatalf("unexpected stats: limit=%d labels=%d devices=%d", st.Limit, len(st.Daily.Labels), len(st.Devices))
+	if st.Limit != 90 || len(st.Daily.Labels) != 7 || len(st.Consoles) == 0 || st.Consoles[0].Name != "Switch Kinderzimmer" {
+		t.Fatalf("unexpected stats: %+v", st)
 	}
-	_, body = e.get("/api/stats?profile=max&days=7&type=phone")
-	var phone statsResponse
-	if err := json.Unmarshal([]byte(body), &phone); err != nil {
-		t.Fatal(err)
-	}
-	if phone.Limit != 60 || len(phone.Devices) != 1 || phone.Devices[0].Name != "iPhone Max" {
-		t.Fatalf("phone stats not filtered: limit=%d devices=%+v", phone.Limit, phone.Devices)
-	}
-	_, body = e.get("/api/stats?profile=max&days=7&type=alle")
-	var all statsResponse
-	_ = json.Unmarshal([]byte(body), &all)
-	if all.Limit != 0 || len(all.Devices) != 3 {
-		t.Fatalf("unfiltered stats: limit=%d devices=%d", all.Limit, len(all.Devices))
-	}
-	if code, _ := e.get("/verlauf?typ=phone"); code != http.StatusOK {
-		t.Fatalf("history with type: %d", code)
-	}
-	if code, _ := e.get("/api/stats?profile=max&days=abc&day=kaputt"); code != http.StatusOK {
+	if code, _ := e.get("/api/stats?profile=niemand&days=abc"); code != http.StatusOK {
 		t.Fatalf("stats with bad params: %d", code)
 	}
 
 	code, body = e.get("/api/kind/max")
-	if code != http.StatusOK || !strings.Contains(body, `"name":"Max"`) {
+	if code != http.StatusOK || !strings.Contains(body, `"name":"Max"`) || !strings.Contains(body, `"limit":90`) {
 		t.Fatalf("kid api: %d %s", code, body)
 	}
 	if code, _ := e.get("/api/kind/niemand"); code != http.StatusNotFound {
@@ -405,10 +376,6 @@ func TestHelpers(t *testing.T) {
 	f := funcs(berlin)
 	if f["clock"].(func(time.Time) string)(time.Time{}) != "-" {
 		t.Fatal("clock zero")
-	}
-	pct := f["pct"].(func(time.Duration, int) int)
-	if pct(time.Hour, 0) != 0 || pct(2*time.Hour, 60) != 100 || pct(30*time.Minute, 60) != 50 {
-		t.Fatal("pct")
 	}
 }
 
@@ -434,31 +401,6 @@ func TestEnergyCells(t *testing.T) {
 	}
 	if f["initial"].(func(string) string)("mia") != "M" || f["initial"].(func(string) string)("") != "?" {
 		t.Error("initial")
-	}
-	ql := f["quotaLeft"].(func(rules.Status) time.Duration)
-	if ql(rules.Status{}) != 0 || ql(rules.Status{LimitToday: 30, UsedToday: time.Hour}) != 0 || ql(rules.Status{LimitToday: 30}) != 30*time.Minute {
-		t.Error("quotaLeft")
-	}
-}
-
-func TestSettingsPage(t *testing.T) {
-	e := newEnv(t, "")
-	if _, body := e.post("/einstellungen", url.Values{"dry_run": {"on"}, "wlan_blocking": {"on"}}); !strings.Contains(body, "Testmodus an") {
-		t.Fatal("enabling test mode not confirmed")
-	}
-	_, body := e.get("/")
-	if !strings.Contains(body, "banner warn") {
-		t.Fatal("test mode banner missing")
-	}
-	if _, body := e.post("/einstellungen", url.Values{"wlan_blocking": {"on"}}); !strings.Contains(body, "Testmodus aus") {
-		t.Fatal("disabling test mode not confirmed")
-	}
-	if _, body := e.post("/einstellungen", url.Values{}); !strings.Contains(body, "Einstellungen gespeichert") {
-		t.Fatal("saving settings not confirmed")
-	}
-	ev, _ := e.store.Events(5, berlin, "config")
-	if len(ev) < 3 {
-		t.Fatalf("settings changes not logged: %+v", ev)
 	}
 }
 
@@ -500,11 +442,11 @@ func TestNintendoPages(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	if err := demo.Seed(st, time.Now().In(berlin)); err != nil {
+	if err := demo.Seed(st); err != nil {
 		t.Fatal(err)
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	eng := engine.New(st, demo.NewController(), nil, engine.Options{Location: berlin}, log)
+	eng := engine.New(st, nil, engine.Options{Location: berlin}, log)
 	fn := &fakeNintendo{st: st}
 	h, err := New(st, eng, Options{Nintendo: fn}, log)
 	if err != nil {
@@ -542,24 +484,21 @@ func TestNintendoPages(t *testing.T) {
 	if _, body := e.post("/einstellungen/nintendo/verbinden", url.Values{"key": {key}, "label": {"Papa"}, "redirect": {"npf://auth#session_token_code=C"}}); !strings.Contains(body, "Papa verbunden") {
 		t.Fatal("connect failed")
 	}
-	if _, body := e.post("/einstellungen/nintendo/konsole", url.Values{"device_id": {"D1"}, "mac": {"98:B6:E9:00:00:01"}}); !strings.Contains(body, "Konsole zugeordnet") {
-		t.Fatal("mapping console failed")
+	if _, body := e.get("/"); !strings.Contains(body, "<strong>Switch 2</strong> gehört noch niemandem") {
+		t.Fatal("unowned console not shown")
 	}
-	if _, body := e.post("/einstellungen/nintendo/spieler", url.Values{"player_id": {"P1"}, "profile": {"max"}}); !strings.Contains(body, "Spieler zugeordnet") {
-		t.Fatal("mapping player failed")
-	}
-	if _, body := e.post("/einstellungen/nintendo/spieler", url.Values{"player_id": {"nope"}, "profile": {"max"}}); !strings.Contains(body, "banner err") {
-		t.Fatal("unknown player accepted")
-	}
-	if _, body := e.post("/einstellungen/nintendo/konsole", url.Values{"device_id": {"nope"}}); !strings.Contains(body, "banner err") {
-		t.Fatal("unknown console accepted")
+	if _, body := e.post("/konsolen/D1", url.Values{"name": {"Switch Kinderzimmer"}, "profile": {"max"}}); !strings.Contains(body, "gehört jetzt Max") {
+		t.Fatal("assigning the console failed")
 	}
 	_, body := e.get("/einstellungen/nintendo")
-	if !strings.Contains(body, "Spieler A") || !strings.Contains(body, "42 Min") {
-		t.Fatal("players or usage missing on the page")
+	if !strings.Contains(body, "Spieler A") || !strings.Contains(body, "42 Min") || !strings.Contains(body, "gehört <strong>Max</strong>") {
+		t.Fatal("players, usage or owner missing on the page")
 	}
-	if _, body := e.get("/"); !strings.Contains(body, "Laut Nintendo heute <strong>42 Min</strong>") || !strings.Contains(body, "Switch Kinderzimmer 42 Min") {
+	if _, body := e.get("/"); !strings.Contains(body, "Heute gespielt: Switch Kinderzimmer <strong>42 Min</strong>") {
 		t.Fatal("dashboard Nintendo line missing")
+	}
+	if _, body := e.get("/konsolen"); !strings.Contains(body, "Heute <strong>42 Min</strong>: Unbekanntes Spiel 42 Min") {
+		t.Fatal("console usage missing")
 	}
 	if _, body := e.get("/einstellungen"); !strings.Contains(body, "Verbunden: Papa") {
 		t.Fatal("connected account missing on settings page")
@@ -578,8 +517,8 @@ func TestNintendoPages(t *testing.T) {
 
 func TestHistoryGames(t *testing.T) {
 	e := newEnv(t, "")
-	if _, body := e.get("/verlauf?profil=max"); !strings.Contains(body, "Benutzer auf der Switch diesem Profil zuordnen") {
-		t.Fatal("hint for unmapped profile missing")
+	if _, body := e.get("/verlauf?profil=max"); !strings.Contains(body, "die Switches zuordnen") {
+		t.Fatal("hint without Nintendo missing")
 	}
 	now := time.Now().In(berlin)
 	if err := demo.SeedNintendo(e.store, now); err != nil {
@@ -619,14 +558,6 @@ func TestHistoryGames(t *testing.T) {
 			t.Fatalf("games section misses %q", want)
 		}
 	}
-	if _, body := e.get("/verlauf?profil=max&typ=phone"); strings.Contains(body, "Kart-Rennen") {
-		t.Fatal("games shown for phones")
-	}
-	if _, body := e.get("/verlauf?profil=max&tage=7&tag=2000-01-01"); !strings.Contains(body, "Kart-Rennen") {
-		t.Fatal("games depend on the timeline day")
-	}
-	_ = e.store.SetNintendoPlayerProfile("demo-max", "")
-	_ = e.store.SetNintendoPlayerProfile("demo-mia", "max")
 	for back := range 14 {
 		day := now.AddDate(0, 0, -back).Format("2006-01-02")
 		usage, _ := e.store.NintendoUsageOn(day)
@@ -653,9 +584,9 @@ func TestGamesPage(t *testing.T) {
 	if err := demo.SeedNintendo(e.store, now); err != nil {
 		t.Fatal(err)
 	}
-	// An unmapped user (a parent) and an unknown game.
-	_ = e.store.UpsertNintendoPlayer(store.NintendoPlayer{PlayerID: "papa", DeviceID: "demo-switch-1", Nickname: "Papa"})
-	_ = e.store.UpsertNintendoUsage(store.NintendoUsage{Date: now.AddDate(0, 0, -20).Format("2006-01-02"), DeviceID: "demo-switch-1", PlayerID: "papa", Minutes: 9,
+	// A console without owner and an unknown game.
+	_ = e.store.UpsertNintendoDevice(store.NintendoDevice{DeviceID: "papa-switch", Account: 1, Label: "Switch Papa"})
+	_ = e.store.UpsertNintendoUsage(store.NintendoUsage{Date: now.AddDate(0, 0, -20).Format("2006-01-02"), DeviceID: "papa-switch", PlayerID: "papa", Minutes: 9,
 		Games: []store.NintendoGame{{ApplicationID: "0100FFFF", Minutes: 9}}})
 	_, body := e.get("/spiele")
 	for _, want := range []string{"Inselabenteuer", "<strong>Max</strong>", "<strong>Mia</strong>", "<strong>Andere</strong>", "Unbekanntes Spiel", "zuletzt heute", "Switch Kinderzimmer", "insgesamt"} {
@@ -685,7 +616,7 @@ func TestNotifySettings(t *testing.T) {
 	}))
 	t.Cleanup(tg.Close)
 	hub := notify.NewHub(st, box, nil, log)
-	eng := engine.New(st, demo.NewController(), hub, engine.Options{Location: berlin}, log)
+	eng := engine.New(st, hub, engine.Options{Location: berlin}, log)
 	h, err := New(st, eng, Options{Notify: hub}, log)
 	if err != nil {
 		t.Fatal(err)
@@ -827,7 +758,7 @@ func TestKidStats(t *testing.T) {
 
 func TestKidWindow(t *testing.T) {
 	now := time.Date(2026, 11, 23, 12, 0, 0, 0, berlin) // a Monday
-	p := store.Profile{Console: store.RuleSet{Schedule: rules.Schedule{time.Monday: {{Start: 540, End: 720}, {Start: 900, End: 1140}}}}}
+	p := store.Profile{Rules: store.RuleSet{Schedule: rules.Schedule{time.Monday: {{Start: 540, End: 720}, {Start: 900, End: 1140}}}}}
 	if got := kidWindow(p, now); got != "09:00 bis 12:00, 15:00 bis 19:00" {
 		t.Fatalf("window %q", got)
 	}

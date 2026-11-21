@@ -82,7 +82,7 @@ func TestHub(t *testing.T) {
 	}
 
 	// Defaults: start off, warn on.
-	if err := h.Notify(ctx, EventStart, "Finn spielt", "x"); err != nil || len(static.msgs) != 0 {
+	if err := h.Notify(ctx, EventStart, "Max spielt", "x"); err != nil || len(static.msgs) != 0 {
 		t.Fatalf("start is off by default: %v %v", err, static.msgs)
 	}
 	if err := h.Notify(ctx, EventWarn, "Zockerzeit", "noch 5"); err == nil {
@@ -133,10 +133,10 @@ func TestTelegram(t *testing.T) {
 	defer srv.Close()
 	tg := NewTelegram("TOKEN", "42")
 	tg.BaseURL = srv.URL
-	if err := tg.Notify(context.Background(), "Finn spielt", "Kart"); err != nil {
+	if err := tg.Notify(context.Background(), "Max spielt", "Kart"); err != nil {
 		t.Fatal(err)
 	}
-	if path != "/botTOKEN/sendMessage" || body["chat_id"] != "42" || body["text"] != "Finn spielt\nKart" {
+	if path != "/botTOKEN/sendMessage" || body["chat_id"] != "42" || body["text"] != "Max spielt\nKart" {
 		t.Fatalf("request: %s %v", path, body)
 	}
 	tg.ChatID = "bad"

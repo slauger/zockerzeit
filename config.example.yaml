@@ -1,43 +1,16 @@
 # Zockerzeit configuration. Copy to config.yaml and adjust.
 # Secrets are better passed as environment variables:
-#   ZOCKERZEIT_UNIFI_USERNAME, ZOCKERZEIT_UNIFI_PASSWORD (or ZOCKERZEIT_UNIFI_API_KEY),
 #   ZOCKERZEIT_ADMIN_PASSWORD, ZOCKERZEIT_SESSION_SECRET, ZOCKERZEIT_NTFY_TOKEN
 
 listen: ":8080"
 database: zockerzeit.db
 timezone: Europe/Berlin
-pollInterval: 60s
 
-# Test mode: records play time and logs what would happen, but never blocks.
-# Keep it on for the first days and check the history before switching it off.
-dryRun: true
-
-# Days of usage history to keep.
-retentionDays: 400
-
-# Devices in "traffic" mode (phones) count a minute as play time only above
-# this amount of traffic per minute.
-minBytesPerMinute: 150000
-
-# Push a warning when this many minutes are left (requires notify.ntfyURL).
+# Notify when a playing kid has this many minutes left.
 warnMinutes: [10, 5]
 
-unifi:
-  # Self-hosted Network Application: https://<host>:8443, unifiOS: false
-  # UniFi OS consoles (UDM, UCG, Cloud Key Gen2+): https://<host>, unifiOS: true
-  url: https://unifi.example.lan:8443
-  site: default
-  unifiOS: false
-  insecureSkipVerify: true
-
-# Optional: cut only the internet access of devices via the FRITZ!Box
-# (TR-064) instead of disconnecting them from the WLAN. The user needs the
-# right "FRITZ!Box Einstellungen". Credentials via ZOCKERZEIT_FRITZBOX_USERNAME
-# and ZOCKERZEIT_FRITZBOX_PASSWORD. Devices must be in the home network, the
-# FRITZ!Box cannot block single devices in its guest network.
-fritzbox:
-  url: ""   # e.g. http://192.168.178.1:49000
-
 notify:
-  # ntfy topic URL, e.g. https://ntfy.sh/<random-topic> or a self-hosted instance.
+  # Optional ntfy topic URL, e.g. https://ntfy.sh/<random-topic> or a
+  # self-hosted instance. More channels (ntfy, Telegram) can be added in the
+  # web UI under Einstellungen.
   ntfyURL: ""

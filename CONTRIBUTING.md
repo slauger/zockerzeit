@@ -5,4 +5,4 @@
 3. Use [Conventional Commits](https://www.conventionalcommits.org/) and sign your commits.
 4. Open a pull request against `main`.
 
-Use `make demo` to try UI changes without a UniFi controller.
+Use `make demo` to try UI changes without a Nintendo account.

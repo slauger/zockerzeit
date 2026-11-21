@@ -14,7 +14,6 @@ import (
 
 	"github.com/slauger/zockerzeit/internal/nintendo"
 	"github.com/slauger/zockerzeit/internal/store"
-	"github.com/slauger/zockerzeit/internal/unifi"
 )
 
 type nintendoPlayerView struct {
@@ -25,7 +24,7 @@ type nintendoPlayerView struct {
 
 type nintendoDeviceView struct {
 	store.NintendoDevice
-	// Owner is the kid the console counts for, empty if it is not mapped.
+	// Owner is the kid the console belongs to, empty if it has no owner yet.
 	Owner   string
 	Today   int
 	Players []nintendoPlayerView
@@ -39,8 +38,6 @@ type nintendoAccountView struct {
 type nintendoData struct {
 	Enabled  bool
 	Accounts []nintendoAccountView
-	Consoles []store.Device
-	Profiles []store.Profile
 	// LoginKey and LoginURL are set while a login is in progress.
 	LoginKey string
 	LoginURL string
@@ -61,29 +58,14 @@ func (s *Server) nintendoPage(w http.ResponseWriter, r *http.Request) {
 	usage, _ := s.store.NintendoUsageOn(s.engine.Now().Format("2006-01-02"))
 	titles, _ := s.store.NintendoTitles()
 	images, _ := s.store.ImageKeys()
-	data.Profiles, _ = s.store.Profiles()
-	profileNames := map[string]string{}
-	for _, p := range data.Profiles {
-		profileNames[p.ID] = p.Name
-	}
-	managed, _ := s.store.Devices()
-	for _, d := range managed {
-		if d.Type() == store.TypeConsole {
-			data.Consoles = append(data.Consoles, d)
-		}
-	}
+	profileNames := s.profileNames()
 	for _, a := range accounts {
 		av := nintendoAccountView{NintendoAccount: a}
 		for _, d := range devices {
 			if d.Account != a.ID {
 				continue
 			}
-			dv := nintendoDeviceView{NintendoDevice: d}
-			for _, m := range managed {
-				if m.MAC == d.DeviceMAC {
-					dv.Owner = profileNames[m.ProfileID]
-				}
-			}
+			dv := nintendoDeviceView{NintendoDevice: d, Owner: profileNames[d.ProfileID]}
 			for _, p := range players {
 				if p.DeviceID != d.DeviceID {
 					continue
@@ -178,36 +160,6 @@ func (s *Server) nintendoRemove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	redirect(w, r, "/einstellungen/nintendo", "Nintendo-Account entfernt")
-}
-
-func (s *Server) nintendoMapDevice(w http.ResponseWriter, r *http.Request) {
-	mac := r.FormValue("mac")
-	if mac != "" {
-		mac = unifi.NormalizeMAC(mac)
-	}
-	id := r.FormValue("device_id")
-	if err := s.store.SetNintendoDeviceMAC(id, mac); err != nil {
-		redirectErr(w, r, "/einstellungen/nintendo", err)
-		return
-	}
-	if err := s.reattribute(s.store.ResetNintendoPlay(id)); err != nil {
-		redirectErr(w, r, "/einstellungen/nintendo", err)
-		return
-	}
-	redirect(w, r, "/einstellungen/nintendo", "Konsole zugeordnet")
-}
-
-func (s *Server) nintendoMapPlayer(w http.ResponseWriter, r *http.Request) {
-	id := r.FormValue("player_id")
-	if err := s.store.SetNintendoPlayerProfile(id, r.FormValue("profile")); err != nil {
-		redirectErr(w, r, "/einstellungen/nintendo", err)
-		return
-	}
-	if err := s.reattribute(s.store.ResetNintendoPlayOfPlayer(id)); err != nil {
-		redirectErr(w, r, "/einstellungen/nintendo", err)
-		return
-	}
-	redirect(w, r, "/einstellungen/nintendo", "Spieler zugeordnet")
 }
 
 // reattribute attributes the play time again after a mapping changed.
@@ -431,19 +383,12 @@ func (s *Server) nintendoGames(profileID string, from, to time.Time) gamesView {
 	return v
 }
 
-// nintendoConsoleNames maps Nintendo device ids to the managed device name,
-// or the Nintendo label when the console is not mapped.
+// nintendoConsoleNames maps Nintendo device ids to the console names.
 func (s *Server) nintendoConsoleNames() map[string]string {
 	devices, _ := s.store.NintendoDevices()
-	managed, _ := s.store.Devices()
 	out := map[string]string{}
 	for _, d := range devices {
-		out[d.DeviceID] = d.Label
-		for _, m := range managed {
-			if m.MAC == d.DeviceMAC {
-				out[d.DeviceID] = m.Name
-			}
-		}
+		out[d.DeviceID] = d.Name
 	}
 	return out
 }
