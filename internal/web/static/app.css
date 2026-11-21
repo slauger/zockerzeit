@@ -339,6 +339,7 @@ label.check { flex-direction: row; align-items: center; gap: 0.45rem; color: var
 .tile-title { min-width: 0; flex: 1; }
 .tile-name { width: 100%; border-color: transparent; background: transparent; padding: 0.15rem 0.35rem; margin-left: -0.35rem; font-family: var(--font-display); font-size: 1.2rem; font-weight: 750; }
 .tile-name:hover { border-color: var(--border); }
+.tile-note { color: var(--warn); font-size: 0.9rem; font-weight: 700; }
 .tile-status { display: flex; align-items: center; gap: 0.45rem; color: var(--text-muted); font-size: 0.92rem; }
 
 .tile-fields { display: grid; grid-template-columns: 1fr auto; gap: 0.85rem; align-items: end; }

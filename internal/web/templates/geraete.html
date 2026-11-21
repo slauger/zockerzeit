@@ -19,7 +19,7 @@
   <div class="tiles">
     {{range .Devices}}
     {{$st := index $d.States .MAC}}
-    {{template "tile" (dict "MAC" .MAC "Name" .Name "ProfileID" .ProfileID "Type" .Type "Shared" .Shared "State" $st "Profiles" $d.Profiles "New" false)}}
+    {{template "tile" (dict "MAC" .MAC "Name" .Name "ProfileID" .ProfileID "Type" .Type "Shared" .Shared "Blocker" .Blocker "Internet" $d.Internet "State" $st "Profiles" $d.Profiles "New" false)}}
     {{end}}
   </div>
   {{else}}
@@ -38,7 +38,7 @@
   {{if $d.Seen}}
   <div class="tiles">
     {{range $d.Seen}}
-    {{template "tile" (dict "MAC" .MAC "Name" .Name "ProfileID" "" "Type" .Type "Shared" false "AP" .APName "ESSID" .ESSID "Profiles" $d.Profiles "New" true)}}
+    {{template "tile" (dict "MAC" .MAC "Name" .Name "ProfileID" "" "Type" .Type "Shared" false "Blocker" "wlan" "Internet" $d.Internet "AP" .APName "ESSID" .ESSID "Profiles" $d.Profiles "New" true)}}
     {{end}}
   </div>
   {{else}}
@@ -80,7 +80,8 @@
       {{if .New}}
         <p class="tile-status"><span class="dot online"></span>im WLAN{{if .AP}}, {{.AP}}{{end}}</p>
       {{else}}{{with .State}}
-        <p class="tile-status"><span class="dot {{if .Blocked}}blocked{{else if .Active}}active{{else if .Online}}online{{end}}"></span>{{if .Blocked}}gesperrt{{else if .Active}}spielt gerade{{else if .Online}}online{{else}}aus{{end}}{{if and .Online .APName}}, {{.APName}}{{end}}</p>
+        <p class="tile-status"><span class="dot {{if .Blocked}}blocked{{else if .Active}}active{{else if .Online}}online{{end}}"></span>{{if .Blocked}}{{if eq .Device.Blocker "internet"}}Internet gesperrt{{else}}gesperrt{{end}}{{else if .Active}}spielt gerade{{else if .Online}}online{{else}}aus{{end}}{{if and .Online .APName}}, {{.APName}}{{end}}</p>
+        {{if .Note}}<p class="tile-note">{{.Note}}</p>{{end}}
       {{else}}
         <p class="tile-status"><span class="dot"></span>aus</p>
       {{end}}{{end}}
@@ -99,6 +100,15 @@
       </div>
     </div>
   </div>
+  {{if or .Internet (eq .Blocker "internet")}}
+  <div class="field">
+    <span class="field-label">Sperre</span>
+    <div class="segmented">
+      <label title="Trennt das Gerät über UniFi vom WLAN"><input type="radio" name="blocker" value="wlan" {{if ne .Blocker "internet"}}checked{{end}}><span>WLAN trennen</span></label>
+      <label title="Gerät bleibt im WLAN, die FRITZ!Box sperrt nur das Internet"><input type="radio" name="blocker" value="internet" {{if eq .Blocker "internet"}}checked{{end}}><span>Nur Internet</span></label>
+    </div>
+  </div>
+  {{else}}<input type="hidden" name="blocker" value="wlan">{{end}}
   <label class="switch">
     <input type="checkbox" name="shared" role="switch" {{if .Shared}}checked{{end}}>
     <span class="switch-track" aria-hidden="true"></span>

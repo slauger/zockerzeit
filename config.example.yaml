@@ -30,6 +30,14 @@ unifi:
   unifiOS: false
   insecureSkipVerify: true
 
+# Optional: cut only the internet access of devices via the FRITZ!Box
+# (TR-064) instead of disconnecting them from the WLAN. The user needs the
+# right "FRITZ!Box Einstellungen". Credentials via ZOCKERZEIT_FRITZBOX_USERNAME
+# and ZOCKERZEIT_FRITZBOX_PASSWORD. Devices must be in the home network, the
+# FRITZ!Box cannot block single devices in its guest network.
+fritzbox:
+  url: ""   # e.g. http://192.168.178.1:49000
+
 notify:
   # ntfy topic URL, e.g. https://ntfy.sh/<random-topic> or a self-hosted instance.
   ntfyURL: ""

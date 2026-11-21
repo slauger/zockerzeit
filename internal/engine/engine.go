@@ -25,6 +25,13 @@ type Controller interface {
 	Unblock(ctx context.Context, mac string) error
 }
 
+// InternetBlocker cuts the internet access of a device while it stays in the
+// local network (FRITZ!Box).
+type InternetBlocker interface {
+	InternetBlocked(ctx context.Context, mac string) (bool, error)
+	SetInternetBlocked(ctx context.Context, mac string, blocked bool) error
+}
+
 // Notifier sends push notifications.
 type Notifier interface {
 	Notify(ctx context.Context, title, message string) error
@@ -41,6 +48,8 @@ type Options struct {
 	// WarnMinutes lists the remaining minutes at which a warning is sent.
 	WarnMinutes   []int
 	RetentionDays int
+	// Internet blocks devices with blocker "internet". Optional.
+	Internet InternetBlocker
 }
 
 // DeviceState is the live state of a managed device.
@@ -51,7 +60,9 @@ type DeviceState struct {
 	Blocked     bool         `json:"blocked"`
 	WantBlocked bool         `json:"wantBlocked"`
 	// Manual is true while a parent override for this device decides.
-	Manual       bool   `json:"manual"`
+	Manual bool `json:"manual"`
+	// Note explains why the device cannot be enforced right now.
+	Note         string `json:"note,omitempty"`
 	Reason       string `json:"reason"`
 	AttributedTo string `json:"attributedTo"`
 	APName       string `json:"apName"`
@@ -179,6 +190,9 @@ func (e *Engine) Now() time.Time { return e.now().In(e.opts.Location) }
 // DryRun reports whether the engine runs in test mode.
 func (e *Engine) DryRun() bool { return e.opts.DryRun }
 
+// InternetEnabled reports whether devices can be blocked via the FRITZ!Box.
+func (e *Engine) InternetEnabled() bool { return e.opts.Internet != nil }
+
 // Snapshot returns the state after the last poll.
 func (e *Engine) Snapshot() Snapshot {
 	e.mu.RLock()
@@ -267,6 +281,16 @@ func (e *Engine) tick(ctx context.Context, now time.Time) error {
 		ds := &DeviceState{Device: d, Blocked: blocked[d.MAC]}
 		states[d.MAC] = ds
 		ds.AttributedTo = attributedProfile(d, ovs)
+		if d.Blocker == store.BlockInternet {
+			ds.Blocked = false
+			if e.opts.Internet == nil {
+				ds.Note = "FRITZ!Box nicht eingerichtet"
+			} else if b, err := e.opts.Internet.InternetBlocked(ctx, d.MAC); err != nil {
+				ds.Note = "FRITZ!Box: " + err.Error()
+			} else {
+				ds.Blocked = b
+			}
+		}
 		st, ok := online[d.MAC]
 		if !ok {
 			delete(e.counters, d.MAC)
@@ -292,6 +316,8 @@ func (e *Engine) tick(ctx context.Context, now time.Time) error {
 		default:
 			ds.Active = true
 		}
+		// Connected but without internet: not counted as play time.
+		ds.Active = ds.Active && !ds.Blocked
 		if elapsed >= time.Second {
 			samples = append(samples, store.Sample{
 				TS: now, MAC: d.MAC, ProfileID: ds.AttributedTo, Type: d.Type(), Seconds: int(elapsed.Round(time.Second).Seconds()),
@@ -475,6 +501,9 @@ func decide(d store.Device, statuses map[string]ProfileView, ovs []store.Overrid
 func (e *Engine) enforce(ctx context.Context, ds *DeviceState, now time.Time) error {
 	mac := ds.Device.MAC
 	want := ds.WantBlocked
+	if ds.Note != "" {
+		return nil
+	}
 	if want == ds.Blocked {
 		e.intent[mac] = want
 		return nil
@@ -494,9 +523,12 @@ func (e *Engine) enforce(ctx context.Context, ds *DeviceState, now time.Time) er
 		return nil
 	}
 	var err error
-	if want {
+	switch {
+	case ds.Device.Blocker == store.BlockInternet:
+		err = e.opts.Internet.SetInternetBlocked(ctx, mac, want)
+	case want:
 		err = e.ctrl.Block(ctx, mac)
-	} else {
+	default:
 		err = e.ctrl.Unblock(ctx, mac)
 	}
 	if err != nil {
@@ -610,7 +642,14 @@ func (e *Engine) Release(ctx context.Context, mac string) error {
 	if e.opts.DryRun {
 		return nil
 	}
-	return e.ctrl.Unblock(ctx, mac)
+	err := e.ctrl.Unblock(ctx, mac)
+	if e.opts.Internet != nil {
+		// The device may be unknown to the FRITZ!Box if it was never online.
+		if ierr := e.opts.Internet.SetInternetBlocked(ctx, mac, false); ierr != nil {
+			e.log.Debug("unblocking internet access failed", "mac", mac, "err", ierr)
+		}
+	}
+	return err
 }
 
 // trackPresence logs when a managed device comes online, goes offline or

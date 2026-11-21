@@ -38,6 +38,7 @@ Kubernetes: `>=1.22.0-0`
 |-----|------|---------|-------------|
 | affinity | object | `{}` | Affinity and anti-affinity rules |
 | config.dryRun | bool | `true` | Test mode: record and log, but never block. Disable once the history looks right. |
+| config.fritzbox.url | string | `""` | TR-064 URL of the FRITZ!Box, e.g. http://192.168.178.1:49000. Enables "internet only" blocking (optional) |
 | config.minBytesPerMinute | int | `150000` | Traffic threshold per minute for devices in traffic mode (phones) |
 | config.notify.ntfyURL | string | `""` | ntfy topic URL for push notifications (optional) |
 | config.pollInterval | string | `"60s"` | How often the UniFi controller is polled |
@@ -84,6 +85,8 @@ Kubernetes: `>=1.22.0-0`
 | resources | object | `{"limits":{"memory":"128Mi"},"requests":{"cpu":"10m","memory":"32Mi"}}` | Container resource requests and limits |
 | secret.adminPassword | string | `""` | Password for the parent web UI |
 | secret.existingSecret | string | `""` | Name of an existing secret with the keys listed above |
+| secret.fritzboxPassword | string | `""` | FRITZ!Box password (optional) |
+| secret.fritzboxUsername | string | `""` | FRITZ!Box user with the right "FRITZ!Box Einstellungen" (optional) |
 | secret.ntfyToken | string | `""` | ntfy access token (optional) |
 | secret.sessionSecret | string | `""` | Secret used to sign session cookies (random if empty, sessions then end on restart) |
 | secret.unifiApiKey | string | `""` | UniFi API key (alternative to username/password) |

@@ -32,6 +32,15 @@ const (
 	TypePhone   = "phone"
 )
 
+// Ways to block a device.
+const (
+	// BlockWLAN disconnects the device from the WLAN via UniFi.
+	BlockWLAN = "wlan"
+	// BlockInternet keeps the device in the WLAN and cuts its internet access
+	// via the FRITZ!Box.
+	BlockInternet = "internet"
+)
+
 // DeviceTypes lists all device types in display order.
 var DeviceTypes = []string{TypeConsole, TypePhone}
 
@@ -81,6 +90,7 @@ type Device struct {
 	ProfileID string `json:"profileId"`
 	Shared    bool   `json:"shared"`
 	Mode      string `json:"mode"`
+	Blocker   string `json:"blocker"`
 }
 
 // Type returns the device type. Phones are tracked by traffic, everything
@@ -190,6 +200,7 @@ var migrations = []string{
 	ALTER TABLE samples ADD COLUMN device_type TEXT NOT NULL DEFAULT 'console';
 	UPDATE samples SET device_type = 'phone' WHERE mac IN (SELECT mac FROM devices WHERE mode = 'traffic');
 	CREATE INDEX samples_profile_type_ts ON samples (profile_id, device_type, ts);`,
+	`ALTER TABLE devices ADD COLUMN blocker TEXT NOT NULL DEFAULT 'wlan';`,
 }
 
 // Open opens (and migrates) the database at path. Use ":memory:" for tests.
@@ -333,7 +344,7 @@ func (s *Store) DeleteProfile(id string) error {
 
 // Devices returns all managed devices ordered by name.
 func (s *Store) Devices() ([]Device, error) {
-	rows, err := s.db.Query(`SELECT mac, name, profile_id, shared, mode FROM devices ORDER BY name COLLATE NOCASE`)
+	rows, err := s.db.Query(`SELECT mac, name, profile_id, shared, mode, blocker FROM devices ORDER BY name COLLATE NOCASE`)
 	if err != nil {
 		return nil, err
 	}
@@ -341,7 +352,7 @@ func (s *Store) Devices() ([]Device, error) {
 	var out []Device
 	for rows.Next() {
 		var d Device
-		if err := rows.Scan(&d.MAC, &d.Name, &d.ProfileID, &d.Shared, &d.Mode); err != nil {
+		if err := rows.Scan(&d.MAC, &d.Name, &d.ProfileID, &d.Shared, &d.Mode, &d.Blocker); err != nil {
 			return nil, err
 		}
 		out = append(out, d)
@@ -354,10 +365,13 @@ func (s *Store) SaveDevice(d Device) error {
 	if d.Mode != ModeTraffic {
 		d.Mode = ModeOnline
 	}
-	_, err := s.db.Exec(`INSERT INTO devices (mac, name, profile_id, shared, mode) VALUES (?, ?, ?, ?, ?)
+	if d.Blocker != BlockInternet {
+		d.Blocker = BlockWLAN
+	}
+	_, err := s.db.Exec(`INSERT INTO devices (mac, name, profile_id, shared, mode, blocker) VALUES (?, ?, ?, ?, ?, ?)
 		ON CONFLICT(mac) DO UPDATE SET name = excluded.name, profile_id = excluded.profile_id,
-		shared = excluded.shared, mode = excluded.mode`,
-		d.MAC, d.Name, d.ProfileID, d.Shared, d.Mode)
+		shared = excluded.shared, mode = excluded.mode, blocker = excluded.blocker`,
+		d.MAC, d.Name, d.ProfileID, d.Shared, d.Mode, d.Blocker)
 	return err
 }
 

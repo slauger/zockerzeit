@@ -118,7 +118,11 @@ tests:
       secret.unifiUsername: zockerzeit
       secret.unifiPassword: pw
       secret.adminPassword: admin
+      secret.fritzboxUsername: zockerzeit
     asserts:
+      - equal:
+          path: stringData.ZOCKERZEIT_FRITZBOX_USERNAME
+          value: zockerzeit
       - equal:
           path: stringData.ZOCKERZEIT_UNIFI_USERNAME
           value: zockerzeit

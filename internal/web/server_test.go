@@ -305,19 +305,24 @@ func TestProfilesAndDevices(t *testing.T) {
 		}
 	}
 
-	dev := url.Values{"mac": {"AA-BB-CC-DD-EE-FF"}, "name": {"Switch Oma"}, "profile": {"grosser-bruder"}, "mode": {"online"}, "shared": {"on"}}
+	dev := url.Values{"mac": {"AA-BB-CC-DD-EE-FF"}, "name": {"Switch Oma"}, "profile": {"grosser-bruder"}, "mode": {"online"}, "shared": {"on"}, "blocker": {"internet"}}
 	if _, body := e.post("/geraete", dev); !strings.Contains(body, "gespeichert") {
 		t.Fatal("saving device failed")
 	}
 	devs, _ := e.store.Devices()
 	found := false
 	for _, d := range devs {
-		if d.MAC == "aa:bb:cc:dd:ee:ff" && d.Shared && d.ProfileID == "grosser-bruder" {
+		if d.MAC == "aa:bb:cc:dd:ee:ff" && d.Shared && d.ProfileID == "grosser-bruder" && d.Blocker == store.BlockInternet {
 			found = true
 		}
 	}
 	if !found {
 		t.Fatalf("device not stored: %+v", devs)
+	}
+	// Switching back to WLAN blocking lifts the internet block first.
+	dev.Set("blocker", "wlan")
+	if _, body := e.post("/geraete", dev); !strings.Contains(body, "gespeichert") {
+		t.Fatal("switching the blocker failed")
 	}
 	for _, bad := range []url.Values{
 		{"mac": {"nope"}, "profile": {"max"}},

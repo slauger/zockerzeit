@@ -83,12 +83,13 @@ func TestProfilesAndDevices(t *testing.T) {
 	if err := s.SaveDevice(Device{MAC: "aa:00", Name: "Switch", ProfileID: "max", Shared: true}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SaveDevice(Device{MAC: "aa:01", Name: "iPhone", ProfileID: "max", Mode: ModeTraffic}); err != nil {
+	if err := s.SaveDevice(Device{MAC: "aa:01", Name: "iPhone", ProfileID: "max", Mode: ModeTraffic, Blocker: BlockInternet}); err != nil {
 		t.Fatal(err)
 	}
 	devs, _ := s.Devices()
 	if len(devs) != 2 || devs[1].Mode != ModeOnline || !devs[1].Shared || devs[0].Mode != ModeTraffic ||
-		devs[0].Type() != TypePhone || devs[1].Type() != TypeConsole {
+		devs[0].Type() != TypePhone || devs[1].Type() != TypeConsole ||
+		devs[0].Blocker != BlockInternet || devs[1].Blocker != BlockWLAN {
 		t.Fatalf("unexpected devices: %+v", devs)
 	}
 	if err := s.DeleteDevice("aa:01"); err != nil {

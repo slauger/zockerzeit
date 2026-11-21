@@ -23,6 +23,14 @@ type UniFi struct {
 	InsecureSkipVerify bool   `yaml:"insecureSkipVerify"`
 }
 
+// Fritzbox holds the TR-064 connection used to cut the internet access of
+// single devices. Optional: without a URL, only WLAN blocking is available.
+type Fritzbox struct {
+	URL      string `yaml:"url"`
+	Username string `yaml:"username"`
+	Password string `yaml:"password"`
+}
+
 // Notify holds push notification settings.
 type Notify struct {
 	NtfyURL   string `yaml:"ntfyURL"`
@@ -46,6 +54,7 @@ type Config struct {
 	MinBytesPerMinute int64         `yaml:"minBytesPerMinute"`
 	WarnMinutes       []int         `yaml:"warnMinutes"`
 	UniFi             UniFi         `yaml:"unifi"`
+	Fritzbox          Fritzbox      `yaml:"fritzbox"`
 	Notify            Notify        `yaml:"notify"`
 	Auth              Auth          `yaml:"auth"`
 }
@@ -89,18 +98,21 @@ func Load(path string) (Config, error) {
 
 func applyEnv(cfg *Config) error {
 	str := map[string]*string{
-		"ZOCKERZEIT_LISTEN":         &cfg.Listen,
-		"ZOCKERZEIT_DATABASE":       &cfg.Database,
-		"ZOCKERZEIT_TIMEZONE":       &cfg.Timezone,
-		"ZOCKERZEIT_UNIFI_URL":      &cfg.UniFi.URL,
-		"ZOCKERZEIT_UNIFI_SITE":     &cfg.UniFi.Site,
-		"ZOCKERZEIT_UNIFI_API_KEY":  &cfg.UniFi.APIKey,
-		"ZOCKERZEIT_UNIFI_USERNAME": &cfg.UniFi.Username,
-		"ZOCKERZEIT_UNIFI_PASSWORD": &cfg.UniFi.Password,
-		"ZOCKERZEIT_NTFY_URL":       &cfg.Notify.NtfyURL,
-		"ZOCKERZEIT_NTFY_TOKEN":     &cfg.Notify.NtfyToken,
-		"ZOCKERZEIT_ADMIN_PASSWORD": &cfg.Auth.AdminPassword,
-		"ZOCKERZEIT_SESSION_SECRET": &cfg.Auth.SessionSecret,
+		"ZOCKERZEIT_LISTEN":            &cfg.Listen,
+		"ZOCKERZEIT_DATABASE":          &cfg.Database,
+		"ZOCKERZEIT_TIMEZONE":          &cfg.Timezone,
+		"ZOCKERZEIT_UNIFI_URL":         &cfg.UniFi.URL,
+		"ZOCKERZEIT_UNIFI_SITE":        &cfg.UniFi.Site,
+		"ZOCKERZEIT_UNIFI_API_KEY":     &cfg.UniFi.APIKey,
+		"ZOCKERZEIT_UNIFI_USERNAME":    &cfg.UniFi.Username,
+		"ZOCKERZEIT_UNIFI_PASSWORD":    &cfg.UniFi.Password,
+		"ZOCKERZEIT_FRITZBOX_URL":      &cfg.Fritzbox.URL,
+		"ZOCKERZEIT_FRITZBOX_USERNAME": &cfg.Fritzbox.Username,
+		"ZOCKERZEIT_FRITZBOX_PASSWORD": &cfg.Fritzbox.Password,
+		"ZOCKERZEIT_NTFY_URL":          &cfg.Notify.NtfyURL,
+		"ZOCKERZEIT_NTFY_TOKEN":        &cfg.Notify.NtfyToken,
+		"ZOCKERZEIT_ADMIN_PASSWORD":    &cfg.Auth.AdminPassword,
+		"ZOCKERZEIT_SESSION_SECRET":    &cfg.Auth.SessionSecret,
 	}
 	for k, p := range str {
 		if v, ok := os.LookupEnv(k); ok {
@@ -131,6 +143,9 @@ func (c Config) Validate() error {
 	}
 	if c.UniFi.APIKey == "" && (c.UniFi.Username == "" || c.UniFi.Password == "") {
 		return errors.New("unifi: either apiKey or username and password are required")
+	}
+	if c.Fritzbox.URL != "" && (c.Fritzbox.Username == "" || c.Fritzbox.Password == "") {
+		return errors.New("fritzbox: username and password are required when a url is set")
 	}
 	if _, err := time.LoadLocation(c.Timezone); err != nil {
 		return fmt.Errorf("timezone: %w", err)

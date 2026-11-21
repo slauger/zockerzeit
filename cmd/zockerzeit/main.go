@@ -18,6 +18,7 @@ import (
 	"github.com/slauger/zockerzeit/internal/config"
 	"github.com/slauger/zockerzeit/internal/demo"
 	"github.com/slauger/zockerzeit/internal/engine"
+	"github.com/slauger/zockerzeit/internal/fritzbox"
 	"github.com/slauger/zockerzeit/internal/notify"
 	"github.com/slauger/zockerzeit/internal/store"
 	"github.com/slauger/zockerzeit/internal/unifi"
@@ -83,6 +84,16 @@ func run() error {
 		}
 	}
 
+	var internet engine.InternetBlocker
+	if cfg.Fritzbox.URL != "" && !*demoMode {
+		fb, err := fritzbox.New(fritzbox.Config{URL: cfg.Fritzbox.URL, Username: cfg.Fritzbox.Username, Password: cfg.Fritzbox.Password})
+		if err != nil {
+			return err
+		}
+		internet = fb
+		log.Info("internet blocking via FRITZ!Box enabled", "url", cfg.Fritzbox.URL)
+	}
+
 	var notifier engine.Notifier
 	if cfg.Notify.NtfyURL != "" {
 		notifier = notify.NewNtfy(cfg.Notify.NtfyURL, cfg.Notify.NtfyToken)
@@ -90,7 +101,7 @@ func run() error {
 
 	eng := engine.New(st, ctrl, notifier, engine.Options{
 		Interval: cfg.PollInterval, DryRun: cfg.DryRun, MinBytesPerMinute: cfg.MinBytesPerMinute,
-		Location: loc, WarnMinutes: cfg.WarnMinutes, RetentionDays: cfg.RetentionDays,
+		Location: loc, WarnMinutes: cfg.WarnMinutes, RetentionDays: cfg.RetentionDays, Internet: internet,
 	}, log)
 
 	if cfg.Auth.AdminPassword == "" {

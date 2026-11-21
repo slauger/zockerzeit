@@ -14,7 +14,7 @@ Zockerzeit ("gaming time") tracks and limits how long kids play by blocking thei
 - 🎮 **Time windows and budgets** - weekday windows, daily and weekly limits per kid, separately for consoles and phones (the night lock is just a window)
 - 🔋 **Energy bar** - remaining time at a glance, one segment per 15 minutes
 - 📊 **History** - play time per day and device, a timeline per day, a weekday/hour heatmap and usage per room (access point)
-- ⛔ **Automatic blocking** - devices are blocked and unblocked through the UniFi controller, nothing to install on the devices
+- ⛔ **Automatic blocking** - per device either disconnect it from the WLAN (UniFi) or cut only its internet access (FRITZ!Box, TR-064), nothing to install on the devices
 - 👆 **Parent controls** - one tap for bonus minutes, free play, a pause for an hour or until tomorrow
 - 👫 **Shared consoles** - release a sibling's console for 30 minutes, the time counts on the right budget
 - 📱 **Kid app** - an installable app (PWA) per kid that shows the remaining time, so nobody has to ask
@@ -98,7 +98,8 @@ See the [chart README](charts/zockerzeit/README.md) for all values. Run a single
 ## Limitations
 
 - Only WLAN clients behind UniFi access points can be blocked. Devices on another WLAN (e.g. the router's own) or cabled to a non-UniFi switch are out of reach.
-- Blocking the WLAN does not stop mobile data on phones, calls always work. Use Screen Time or Family Link if you need more.
+- Blocking does not stop mobile data on phones, calls always work. Use Screen Time or Family Link if you need more.
+- Internet-only blocking via the FRITZ!Box works for devices in its home network only. The FRITZ!Box cannot block single devices in its guest network, and the device must have been online once so the FRITZ!Box knows it.
 - Devices are identified by MAC address. A device with a new (random) MAC shows up as a new, unmanaged device.
 - Consoles in standby with downloads enabled may stay connected and count as playing. If the history shows play time at night, disable downloads in sleep mode or switch the device to the phone type.
 - Zockerzeit sees connection times and traffic volume, not which game or app is used.
@@ -115,6 +116,7 @@ All options are documented in [config.example.yaml](config.example.yaml). Secret
 | `ZOCKERZEIT_ADMIN_PASSWORD` | Password for the parent UI |
 | `ZOCKERZEIT_SESSION_SECRET` | Signs session cookies, keeps logins across restarts |
 | `ZOCKERZEIT_NTFY_TOKEN` | Access token for ntfy (optional) |
+| `ZOCKERZEIT_FRITZBOX_USERNAME` / `ZOCKERZEIT_FRITZBOX_PASSWORD` | FRITZ!Box user with the right "FRITZ!Box Einstellungen", enables internet-only blocking (optional) |
 | `ZOCKERZEIT_DRY_RUN` | Overrides `dryRun` |
 
 ## Local Development

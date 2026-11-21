@@ -47,6 +47,9 @@ config:
     unifiOS: false
     # -- Skip TLS verification (self-signed controller certificate)
     insecureSkipVerify: true
+  fritzbox:
+    # -- TR-064 URL of the FRITZ!Box, e.g. http://192.168.178.1:49000. Enables "internet only" blocking (optional)
+    url: ""
   notify:
     # -- ntfy topic URL for push notifications (optional)
     ntfyURL: ""
@@ -54,7 +57,8 @@ config:
 # Credentials. Either set the values here or reference an existing secret
 # containing the keys ZOCKERZEIT_UNIFI_USERNAME, ZOCKERZEIT_UNIFI_PASSWORD
 # (or ZOCKERZEIT_UNIFI_API_KEY), ZOCKERZEIT_ADMIN_PASSWORD,
-# ZOCKERZEIT_SESSION_SECRET and optionally ZOCKERZEIT_NTFY_TOKEN.
+# ZOCKERZEIT_SESSION_SECRET and optionally ZOCKERZEIT_NTFY_TOKEN,
+# ZOCKERZEIT_FRITZBOX_USERNAME and ZOCKERZEIT_FRITZBOX_PASSWORD.
 secret:
   # -- Name of an existing secret with the keys listed above
   existingSecret: ""
@@ -70,6 +74,10 @@ secret:
   sessionSecret: ""
   # -- ntfy access token (optional)
   ntfyToken: ""
+  # -- FRITZ!Box user with the right "FRITZ!Box Einstellungen" (optional)
+  fritzboxUsername: ""
+  # -- FRITZ!Box password (optional)
+  fritzboxPassword: ""
 
 persistence:
   # -- Store the SQLite database on a persistent volume

@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"slices"
@@ -422,5 +423,103 @@ func TestDryRunAppliesManualDeviceOverrides(t *testing.T) {
 	h.tick()
 	if h.ctrl.blocked["ip:01"] || !h.ctrl.blocked["sw:01"] {
 		t.Fatalf("manual overrides must be applied in dry run, calls=%v", h.ctrl.calls)
+	}
+}
+
+type fakeInternet struct {
+	mu      sync.Mutex
+	known   map[string]bool
+	blocked map[string]bool
+	calls   []string
+}
+
+func (f *fakeInternet) InternetBlocked(_ context.Context, mac string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !f.known[mac] {
+		return false, errors.New("device unknown to the FRITZ!Box")
+	}
+	return f.blocked[mac], nil
+}
+
+func (f *fakeInternet) SetInternetBlocked(_ context.Context, mac string, blocked bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !f.known[mac] {
+		return errors.New("device unknown to the FRITZ!Box")
+	}
+	f.calls = append(f.calls, fmt.Sprintf("%s=%v", mac, blocked))
+	f.blocked[mac] = blocked
+	return nil
+}
+
+func TestInternetBlocker(t *testing.T) {
+	h := newHarness(t, false)
+	fi := &fakeInternet{known: map[string]bool{"ip:01": true}, blocked: map[string]bool{}}
+	h.eng.opts.Internet = fi
+	must(t, h.store.SaveDevice(store.Device{MAC: "ip:01", Name: "iPhone", ProfileID: "max", Mode: store.ModeTraffic, Blocker: store.BlockInternet}))
+	must(t, h.store.SaveDevice(store.Device{MAC: "tv:01", Name: "Fernseher", ProfileID: "max", Blocker: store.BlockInternet}))
+
+	// Outside the window: internet blocked via the FRITZ!Box, WLAN untouched.
+	h.clock = time.Date(2026, 11, 18, 20, 0, 0, 0, berlin)
+	h.tick()
+	if !fi.blocked["ip:01"] {
+		t.Fatalf("internet should be blocked, calls=%v", fi.calls)
+	}
+	if h.ctrl.blocked["ip:01"] {
+		t.Fatal("the WLAN must stay untouched for internet blocking")
+	}
+	if !h.eng.InternetEnabled() {
+		t.Fatal("InternetEnabled")
+	}
+	var tv, ip DeviceState
+	for _, d := range h.profile("max").Devices {
+		switch d.Device.MAC {
+		case "tv:01":
+			tv = d
+		case "ip:01":
+			ip = d
+		}
+	}
+	if !strings.Contains(tv.Note, "unknown") {
+		t.Fatalf("unknown host should be noted, got %+v", tv)
+	}
+	if !ip.Online || !ip.Blocked {
+		t.Fatalf("blocked phone stays online in the WLAN: %+v", ip)
+	}
+
+	// Blocked minutes are not counted, even with traffic.
+	h.ctrl.traffic("ip:01", 10_000_000)
+	h.tick()
+	if u := h.profile("max").Phone.UsedToday; u != 0 {
+		t.Fatalf("blocked minutes counted: %v", u)
+	}
+
+	// Back in the window the internet is released again.
+	h.clock = time.Date(2026, 11, 19, 15, 30, 0, 0, berlin)
+	h.tick()
+	if fi.blocked["ip:01"] {
+		t.Fatalf("internet should be released, calls=%v", fi.calls)
+	}
+
+	fi.blocked["ip:01"] = true
+	must(t, h.eng.Release(context.Background(), "ip:01"))
+	if fi.blocked["ip:01"] {
+		t.Fatal("release should unblock the internet access")
+	}
+}
+
+func TestInternetBlockerMissing(t *testing.T) {
+	h := newHarness(t, false)
+	must(t, h.store.SaveDevice(store.Device{MAC: "ip:01", Name: "iPhone", ProfileID: "max", Mode: store.ModeTraffic, Blocker: store.BlockInternet}))
+	h.clock = time.Date(2026, 11, 18, 20, 0, 0, 0, berlin)
+	h.tick()
+	for _, d := range h.profile("max").Devices {
+		if d.Device.MAC == "ip:01" && d.Note != "FRITZ!Box nicht eingerichtet" {
+			t.Fatalf("note = %q", d.Note)
+		}
+	}
+	if h.ctrl.blocked["ip:01"] {
+		t.Fatal("without a FRITZ!Box nothing may fall back to WLAN blocking")
 	}
 }

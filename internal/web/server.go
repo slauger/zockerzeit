@@ -44,6 +44,7 @@ type Engine interface {
 	Now() time.Time
 	Location() *time.Location
 	DryRun() bool
+	InternetEnabled() bool
 }
 
 // Options configure the web server.

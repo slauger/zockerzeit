@@ -390,6 +390,8 @@ type devicesData struct {
 	Profiles []store.Profile
 	Seen     []seenDevice
 	States   map[string]engine.DeviceState
+	// Internet is true when devices can be blocked via the FRITZ!Box.
+	Internet bool
 }
 
 // guessType suggests a device type from the hostname reported by UniFi.
@@ -433,7 +435,7 @@ func (s *Server) devicesPage(w http.ResponseWriter, r *http.Request) {
 		}
 		groups = append(groups, g)
 	}
-	s.render(w, r, "geraete", "Geräte", devicesData{Groups: groups, Profiles: profiles, Seen: seen, States: states})
+	s.render(w, r, "geraete", "Geräte", devicesData{Groups: groups, Profiles: profiles, Seen: seen, States: states, Internet: s.engine.InternetEnabled()})
 }
 
 func (s *Server) saveDevice(w http.ResponseWriter, r *http.Request) {
@@ -443,6 +445,7 @@ func (s *Server) saveDevice(w http.ResponseWriter, r *http.Request) {
 		ProfileID: r.FormValue("profile"),
 		Shared:    r.FormValue("shared") == "on",
 		Mode:      modeForType(r.FormValue("type"), r.FormValue("mode")),
+		Blocker:   r.FormValue("blocker"),
 	}
 	if !validMAC(d.MAC) {
 		redirectErr(w, r, "/geraete", fmt.Errorf("ungültige MAC-Adresse %q", d.MAC))
@@ -454,6 +457,16 @@ func (s *Server) saveDevice(w http.ResponseWriter, r *http.Request) {
 	if _, err := s.store.Profile(d.ProfileID); err != nil {
 		redirectErr(w, r, "/geraete", errors.New("bitte zuerst ein Profil anlegen und auswählen"))
 		return
+	}
+	// Switching the way of blocking: lift a block set the old way first,
+	// otherwise it would stay forever.
+	devs, _ := s.store.Devices()
+	for _, old := range devs {
+		if old.MAC == d.MAC && old.Blocker != d.Blocker && (d.Blocker == store.BlockInternet || old.Blocker == store.BlockInternet) {
+			if err := s.engine.Release(r.Context(), d.MAC); err != nil {
+				s.log.Warn("lifting the previous block failed", "mac", d.MAC, "err", err)
+			}
+		}
 	}
 	if err := s.store.SaveDevice(d); err != nil {
 		redirectErr(w, r, "/geraete", err)

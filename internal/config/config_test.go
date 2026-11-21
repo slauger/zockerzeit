@@ -24,6 +24,9 @@ unifi:
 	}
 	t.Setenv("ZOCKERZEIT_UNIFI_PASSWORD", "fromenv")
 	t.Setenv("ZOCKERZEIT_UNIFI_INSECURE", "true")
+	t.Setenv("ZOCKERZEIT_FRITZBOX_URL", "http://10.0.0.1:49000")
+	t.Setenv("ZOCKERZEIT_FRITZBOX_USERNAME", "zz")
+	t.Setenv("ZOCKERZEIT_FRITZBOX_PASSWORD", "pw")
 
 	cfg, err := Load(path)
 	if err != nil {
@@ -34,6 +37,9 @@ unifi:
 	}
 	if cfg.UniFi.Username != "fromfile" || cfg.UniFi.Password != "fromenv" || !cfg.UniFi.InsecureSkipVerify {
 		t.Fatalf("env override not applied: %+v", cfg.UniFi)
+	}
+	if cfg.Fritzbox.URL != "http://10.0.0.1:49000" || cfg.Fritzbox.Username != "zz" {
+		t.Fatalf("fritzbox env not applied: %+v", cfg.Fritzbox)
 	}
 	if cfg.UniFi.Site != "default" || cfg.Timezone != "Europe/Berlin" || len(cfg.WarnMinutes) != 1 {
 		t.Fatalf("defaults wrong: %+v", cfg)
@@ -79,10 +85,11 @@ func TestValidate(t *testing.T) {
 		t.Fatal(err)
 	}
 	cases := map[string]func(*Config){
-		"no url":       func(c *Config) { c.UniFi.URL = "" },
-		"no creds":     func(c *Config) { c.UniFi.APIKey = "" },
-		"bad timezone": func(c *Config) { c.Timezone = "Mars/Olympus" },
-		"short poll":   func(c *Config) { c.PollInterval = time.Second },
+		"no url":                       func(c *Config) { c.UniFi.URL = "" },
+		"no creds":                     func(c *Config) { c.UniFi.APIKey = "" },
+		"bad timezone":                 func(c *Config) { c.Timezone = "Mars/Olympus" },
+		"short poll":                   func(c *Config) { c.PollInterval = time.Second },
+		"fritzbox without credentials": func(c *Config) { c.Fritzbox.URL = "http://fritz.box:49000" },
 	}
 	for name, mod := range cases {
 		c := base

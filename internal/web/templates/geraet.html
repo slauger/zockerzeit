@@ -16,8 +16,10 @@
       <h1>{{$d.Device.Name}}</h1>
       <p class="tile-status">
         <span class="dot {{if $d.State.Blocked}}blocked{{else if $d.State.Active}}active{{else if $d.State.Online}}online{{end}}"></span>
-        {{if $d.State.Blocked}}gesperrt{{else if $d.State.Active}}spielt gerade{{else if $d.State.Online}}online{{else}}aus{{end}}{{if and $d.State.Online $d.State.APName}}, {{$d.State.APName}}{{end}}
+        {{if $d.State.Blocked}}{{if eq $d.Device.Blocker "internet"}}Internet gesperrt{{else}}gesperrt{{end}}{{else if $d.State.Active}}spielt gerade{{else if $d.State.Online}}online{{else}}aus{{end}}{{if and $d.State.Online $d.State.APName}}, {{$d.State.APName}}{{end}}
       </p>
+      <p class="muted">Sperre: {{if eq $d.Device.Blocker "internet"}}nur Internet über die FRITZ!Box, das Gerät bleibt im WLAN{{else}}WLAN trennen über UniFi{{end}}.</p>
+      {{if $d.State.Note}}<p class="tile-note">{{$d.State.Note}}</p>{{end}}
       <p class="muted">{{typeLabel $d.Device.Type}} von {{$d.Owner.Name}}{{if $d.Device.Shared}}, auch von Geschwistern genutzt{{end}}. {{if $d.State.Reason}}{{$d.State.Reason}}.{{end}}</p>
     </div>
   </header>
