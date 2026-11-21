@@ -16,7 +16,7 @@ Zockerzeit ("gaming time") is a self-hosted dashboard for parents that shows how
 - 🎮 **Time windows and limits** - per kid, per weekday, daily and weekly, plus extra minutes for today
 - 🕹️ **Games** - every game Nintendo reported with cover, play time per kid, last played and on which console
 - 📈 **History** - play time per day and console, when during the week the kids play
-- 🔔 **Notifications** - Telegram or ntfy when a kid starts playing, when the time is almost up or used up while playing, each switchable
+- 🔔 **Notifications** - one Telegram bot for the family: every parent connects with one tap and chooses what to get (a kid starts playing, the time is almost up, a kid keeps playing after it). Optionally all messages to an ntfy topic
 - 📱 **Apps** - the parent UI and a kid app per kid install as web apps (PWA). The kid app shows the remaining time and the kid's own statistics for today, 7 or 30 days or all time
 - 🏠 **Self-hosted** - a single Go binary with SQLite. Names, rules and covers stay in your database, pages load nothing from other hosts
 
@@ -48,7 +48,7 @@ flowchart LR
 - **Rules** - every minute the time windows and limits of each kid are evaluated against the Nintendo play time for the dashboard, the kid app and the notifications.
 - **Enforcement** - Zockerzeit does not block anything. What the console enforces (daily limit, bedtime, suspending the software) is set in the Nintendo parental controls app. Zockerzeit is the place to see the play time per kid across consoles and to get notified.
 
-All configuration (kids, rules, consoles, Nintendo accounts, notification channels) lives in the SQLite database and is edited in the web UI. The config file only holds the time zone, the warning thresholds and an optional ntfy topic.
+All configuration (kids, rules, consoles, Nintendo accounts, Telegram bot and recipients) lives in the SQLite database and is edited in the web UI. The config file only holds the time zone, the warning thresholds and an optional ntfy topic.
 
 ## Quick Start
 
@@ -81,7 +81,7 @@ helm install zockerzeit oci://ghcr.io/slauger/charts/zockerzeit -n zockerzeit \
   --set secret.existingSecret=zockerzeit
 ```
 
-See the [chart README](charts/zockerzeit/README.md) for all values. Run a single replica only, the database is SQLite. Keep the session secret stable: it encrypts the Nintendo tokens and notification channels.
+See the [chart README](charts/zockerzeit/README.md) for all values. Run a single replica only, the database is SQLite. Keep the session secret stable: it encrypts the Nintendo tokens and the Telegram bot token.
 
 ## Setup
 
@@ -89,7 +89,7 @@ See the [chart README](charts/zockerzeit/README.md) for all values. Run a single
 2. **Regeln**: create a profile per kid with time windows (`15:00-18:30`) and daily or weekly limits.
 3. **Einstellungen → Nintendo**: connect the account(s). The consoles show up after the first fetch.
 4. **Konsolen**: choose the kid each console belongs to.
-5. **Einstellungen → Benachrichtigungen**: add a Telegram bot or an ntfy topic and choose the events.
+5. **Einstellungen → Benachrichtigungen**: set up the Telegram bot once (create it with `@BotFather`, paste the token). Then every parent enters a name, ticks the messages they want and taps *Mit Telegram verbinden*: Telegram opens the bot, *Start* connects the chat.
 6. **Einstellungen → Zugang ohne Passwort**: create a link for each phone and tablet and install the apps (see below).
 
 ### Installing the apps
@@ -115,7 +115,7 @@ All options are documented in [config.example.yaml](config.example.yaml). Secret
 | Variable | Purpose |
 |----------|---------|
 | `ZOCKERZEIT_ADMIN_PASSWORD` | Password for the parent UI |
-| `ZOCKERZEIT_SESSION_SECRET` | Signs session cookies and encrypts Nintendo tokens and notification channels. Required for Nintendo and own notification channels |
+| `ZOCKERZEIT_SESSION_SECRET` | Signs session cookies and encrypts the Nintendo tokens and the Telegram bot token. Required for Nintendo and Telegram |
 | `ZOCKERZEIT_NTFY_TOKEN` | Access token for the ntfy topic from the config file (optional) |
 
 ## Local Development

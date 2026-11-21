@@ -87,6 +87,9 @@ func run() error {
 		}
 	}
 	hub := notify.NewHub(st, notifyBox, static, log)
+	if err := hub.MigrateChannels(); err != nil {
+		return fmt.Errorf("migrate notification channels: %w", err)
+	}
 
 	eng := engine.New(st, hub, engine.Options{Location: loc, WarnMinutes: cfg.WarnMinutes}, log)
 
@@ -118,6 +121,9 @@ func run() error {
 	defer stop()
 
 	go eng.Run(ctx)
+	if !*demoMode {
+		go hub.Run(ctx)
+	}
 	if syncer != nil {
 		go syncer.Run(ctx)
 	}

@@ -233,6 +233,15 @@ var migrations = []string{
 		created INTEGER NOT NULL,
 		last_used INTEGER NOT NULL DEFAULT 0
 	);`,
+	// Parents who get messages from the shared Telegram bot.
+	`CREATE TABLE notify_recipients (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		name TEXT NOT NULL,
+		chat_id TEXT NOT NULL DEFAULT '',
+		events TEXT NOT NULL DEFAULT '',
+		code TEXT NOT NULL DEFAULT '',
+		created INTEGER NOT NULL
+	);`,
 }
 
 // Open opens (and migrates) the database at path. Use ":memory:" for tests.

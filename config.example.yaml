@@ -10,7 +10,7 @@ timezone: Europe/Berlin
 warnMinutes: [10, 5]
 
 notify:
-  # Optional ntfy topic URL, e.g. https://ntfy.sh/<random-topic> or a
-  # self-hosted instance. More channels (ntfy, Telegram) can be added in the
-  # web UI under Einstellungen.
+  # Optional ntfy topic URL that gets every message, e.g.
+  # https://ntfy.sh/<random-topic>. Telegram is set up in the web UI under
+  # Einstellungen: one bot, each parent chooses their messages.
   ntfyURL: ""

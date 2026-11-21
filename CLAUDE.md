@@ -8,7 +8,7 @@ Go web app that shows the play time of kids from the Nintendo Switch parental co
 - `internal/rules` - time windows, quotas, overrides (pure logic)
 - `internal/engine` - evaluation loop: Nintendo play time -> rules -> warnings and "time is up" notifications
 - `internal/nintendo` - Nintendo parental controls client, syncer and play time attribution (console owner or "ist jetzt bei")
-- `internal/notify` - notification hub with ntfy and Telegram channels
+- `internal/notify` - shared Telegram bot with one recipient per parent (events per recipient, connect via /start code), optional static ntfy topic
 - `internal/secret` - AES-GCM box for tokens stored in the database
 - `internal/store` - SQLite (modernc, no CGO), schema migrations in `migrations`
 - `internal/stats` - aggregation for the charts

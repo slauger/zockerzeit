@@ -614,11 +614,27 @@ func TestNotifySettings(t *testing.T) {
 	t.Cleanup(func() { _ = st.Close() })
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	box, _ := secret.NewBox([]byte("k"), "notify")
-	tg := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = io.WriteString(w, `{"ok":false,"description":"chat not found"}`)
+	var sent []string
+	tg := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/botTOKEN/getMe":
+			_, _ = io.WriteString(w, `{"ok":true,"result":{"username":"zz_bot"}}`)
+		case "/botTOKEN/sendMessage":
+			b, _ := io.ReadAll(r.Body)
+			sent = append(sent, string(b))
+			_, _ = io.WriteString(w, `{"ok":true,"result":{}}`)
+		default:
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = io.WriteString(w, `{"ok":false,"description":"Unauthorized"}`)
+		}
 	}))
 	t.Cleanup(tg.Close)
 	hub := notify.NewHub(st, box, nil, log)
+	hub.NewBot = func(token string) *notify.Bot {
+		b := notify.NewBot(token)
+		b.BaseURL = tg.URL
+		return b
+	}
 	eng := engine.New(st, hub, engine.Options{Location: berlin}, log)
 	h, err := New(st, eng, Options{Notify: hub}, log)
 	if err != nil {
@@ -629,51 +645,62 @@ func TestNotifySettings(t *testing.T) {
 	jar, _ := cookiejar.New(nil)
 	e := &env{t: t, store: st, srv: srv, client: &http.Client{Jar: jar}}
 
-	if _, body := e.get("/einstellungen"); !strings.Contains(body, "Noch kein Kanal") || !strings.Contains(body, "Telegram hinzufügen") {
-		t.Fatal("notification card missing")
+	if _, body := e.get("/einstellungen"); !strings.Contains(body, "Bot einrichten") || strings.Contains(body, "Mich eintragen") {
+		t.Fatal("bot setup missing")
 	}
-	if _, body := e.post("/einstellungen/benachrichtigungen", url.Values{"event_start": {"on"}}); !strings.Contains(body, "Benachrichtigungen gespeichert") {
+	if _, body := e.post("/einstellungen/telegram", url.Values{"token": {"FALSCH"}}); !strings.Contains(body, "kennt dieses Token nicht") {
+		t.Fatal("wrong token accepted")
+	}
+	if _, body := e.post("/einstellungen/telegram", url.Values{"token": {"TOKEN"}}); !strings.Contains(body, "@zz_bot eingerichtet") {
+		t.Fatal("bot setup failed")
+	}
+	if _, body := e.post("/einstellungen/empfaenger", url.Values{"name": {""}}); !strings.Contains(body, "Namen") {
+		t.Fatal("recipient without name accepted")
+	}
+	_, body := e.post("/einstellungen/empfaenger", url.Values{"name": {"Papa"}, "event_warn": {"on"}, "event_over": {"on"}})
+	if !strings.Contains(body, "https://t.me/zz_bot?start=") || !strings.Contains(body, "wartet auf Start") {
+		t.Fatal("connect link missing")
+	}
+	rs, _ := st.NotifyRecipients()
+	id := strconv.FormatInt(rs[0].ID, 10)
+	if _, body := e.post("/einstellungen/empfaenger/"+id+"/test", nil); !strings.Contains(body, "noch nicht auf Start") {
+		t.Fatal("test before connecting")
+	}
+	if _, err := st.ConnectNotifyRecipient(rs[0].Code, "42"); err != nil {
+		t.Fatal(err)
+	}
+	if _, body := e.post("/einstellungen/empfaenger/"+id, url.Values{"name": {"Papa"}, "event_start": {"on"}}); !strings.Contains(body, "Benachrichtigungen gespeichert") || !strings.Contains(body, "verbunden") {
 		t.Fatal("saving events failed")
 	}
-	if !hub.Enabled(notify.EventStart) || hub.Enabled(notify.EventWarn) {
-		t.Fatal("events not stored")
+	if rs, _ := st.NotifyRecipients(); strings.Join(rs[0].Events, ",") != "start" {
+		t.Fatalf("events = %v", rs[0].Events)
 	}
-	if _, body := e.post("/einstellungen/kanal", url.Values{"kind": {"telegram"}, "token": {"t"}}); !strings.Contains(body, "Chat-ID") {
-		t.Fatal("incomplete channel accepted")
+	if _, body := e.post("/einstellungen/empfaenger/"+id+"/test", nil); !strings.Contains(body, "Testnachricht verschickt") || len(sent) != 1 || !strings.Contains(sent[0], `"chat_id":"42"`) {
+		t.Fatalf("test message failed: %v", sent)
 	}
-	if _, body := e.post("/einstellungen/kanal", url.Values{"kind": {"ntfy"}, "label": {"Handy"}, "url": {tg.URL}}); !strings.Contains(body, "Kanal hinzugefügt") {
-		t.Fatal("adding channel failed")
+	for _, path := range []string{"/einstellungen/empfaenger/x", "/einstellungen/empfaenger/x/test", "/einstellungen/empfaenger/x/entfernen"} {
+		if _, body := e.post(path, url.Values{"name": {"x"}}); !strings.Contains(body, "unbekannter Empfänger") {
+			t.Errorf("%s: bad id accepted", path)
+		}
 	}
-	chans, _ := st.NotifyChannels()
-	if len(chans) != 1 {
-		t.Fatalf("channels: %+v", chans)
-	}
-	id := strconv.FormatInt(chans[0].ID, 10)
-	if _, body := e.post("/einstellungen/kanal/"+id+"/test", nil); !strings.Contains(body, "Testnachricht verschickt") {
-		t.Fatal("test message failed")
-	}
-	if _, body := e.post("/einstellungen/kanal/x/test", nil); !strings.Contains(body, "unbekannter Kanal") {
-		t.Fatal("bad id accepted")
-	}
-	if _, body := e.post("/einstellungen/kanal/"+id+"/entfernen", nil); !strings.Contains(body, "Kanal entfernt") {
+	if _, body := e.post("/einstellungen/empfaenger/"+id+"/entfernen", nil); !strings.Contains(body, "Empfänger entfernt") {
 		t.Fatal("removing failed")
 	}
-	if _, body := e.post("/einstellungen/kanal/"+id+"/entfernen", nil); !strings.Contains(body, "banner err") {
+	if _, body := e.post("/einstellungen/empfaenger/"+id+"/entfernen", nil); !strings.Contains(body, "banner err") {
 		t.Fatal("removing twice should fail")
 	}
-	if _, body := e.post("/einstellungen/kanal/x/entfernen", nil); !strings.Contains(body, "unbekannter Kanal") {
-		t.Fatal("bad id accepted")
+	if _, body := e.post("/einstellungen/telegram/entfernen", nil); !strings.Contains(body, "Bot entfernt") || !strings.Contains(body, "Bot einrichten") {
+		t.Fatal("removing the bot failed")
 	}
 
 	// Without the hub the routes refuse.
 	e2 := newEnv(t, "")
-	if _, body := e2.post("/einstellungen/benachrichtigungen", nil); !strings.Contains(body, "nicht eingerichtet") {
-		t.Fatal("events without hub")
+	for _, path := range []string{"/einstellungen/telegram", "/einstellungen/empfaenger"} {
+		if _, body := e2.post(path, nil); !strings.Contains(body, "nicht eingerichtet") {
+			t.Errorf("%s without hub", path)
+		}
 	}
-	if _, body := e2.post("/einstellungen/kanal", nil); !strings.Contains(body, "nicht eingerichtet") {
-		t.Fatal("channel without hub")
-	}
-	if _, body := e2.get("/einstellungen"); strings.Contains(body, "Telegram hinzufügen") {
+	if _, body := e2.get("/einstellungen"); strings.Contains(body, "Bot einrichten") {
 		t.Fatal("card shown without hub")
 	}
 }

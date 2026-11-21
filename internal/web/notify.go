@@ -4,7 +4,6 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
-	"strings"
 
 	"github.com/slauger/zockerzeit/internal/notify"
 	"github.com/slauger/zockerzeit/internal/store"
@@ -12,10 +11,11 @@ import (
 
 // notifyData is the notification part of the settings page.
 type notifyData struct {
-	CanStore bool
-	Static   bool
-	Events   []notifyEvent
-	Channels []store.NotifyChannel
+	CanStore   bool
+	Static     bool
+	Bot        string
+	Events     []notifyEvent
+	Recipients []recipientView
 }
 
 type notifyEvent struct {
@@ -23,75 +23,125 @@ type notifyEvent struct {
 	On         bool
 }
 
+type recipientView struct {
+	store.NotifyRecipient
+	// Connect opens the bot in Telegram while the recipient is pending.
+	Connect string
+	Events  []notifyEvent
+}
+
 func (s *Server) notifyData() *notifyData {
-	if s.opts.Notify == nil {
+	n := s.opts.Notify
+	if n == nil {
 		return nil
 	}
-	d := &notifyData{CanStore: s.opts.Notify.CanStore(), Static: s.opts.Notify.HasStatic()}
+	d := &notifyData{CanStore: n.CanStore(), Static: n.HasStatic(), Bot: n.BotName()}
 	for _, e := range notify.Events {
-		d.Events = append(d.Events, notifyEvent{Key: e.Key, Label: e.Label, On: s.opts.Notify.Enabled(e.Key)})
+		d.Events = append(d.Events, notifyEvent{Key: e.Key, Label: e.Label, On: true})
 	}
-	d.Channels, _ = s.store.NotifyChannels()
+	recipients, _ := s.store.NotifyRecipients()
+	for _, r := range recipients {
+		v := recipientView{NotifyRecipient: r}
+		if !r.Connected() && d.Bot != "" {
+			v.Connect = n.ConnectURL(r.Code)
+		}
+		for _, e := range notify.Events {
+			v.Events = append(v.Events, notifyEvent{Key: e.Key, Label: e.Label, On: r.Wants(e.Key)})
+		}
+		d.Recipients = append(d.Recipients, v)
+	}
 	return d
 }
 
-const settingsPath = "/einstellungen"
+const notifyPath = "/einstellungen#benachrichtigungen"
 
-func (s *Server) saveNotifyEvents(w http.ResponseWriter, r *http.Request) {
-	if s.opts.Notify == nil {
-		redirectErr(w, r, settingsPath, errors.New("Benachrichtigungen sind nicht eingerichtet"))
-		return
-	}
+// formEvents reads the ticked events of a form.
+func formEvents(r *http.Request) []string {
+	var out []string
 	for _, e := range notify.Events {
-		if err := s.opts.Notify.SetEnabled(e.Key, r.FormValue("event_"+e.Key) == "on"); err != nil {
-			redirectErr(w, r, settingsPath, err)
-			return
+		if r.FormValue("event_"+e.Key) == "on" {
+			out = append(out, e.Key)
 		}
 	}
-	redirect(w, r, settingsPath, "Benachrichtigungen gespeichert")
+	return out
 }
 
-func (s *Server) addNotifyChannel(w http.ResponseWriter, r *http.Request) {
-	if s.opts.Notify == nil {
-		redirectErr(w, r, settingsPath, errors.New("Benachrichtigungen sind nicht eingerichtet"))
-		return
+// withNotify runs fn if notifications are available.
+func (s *Server) withNotify(fn func(n Notify, w http.ResponseWriter, r *http.Request)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if s.opts.Notify == nil {
+			redirectErr(w, r, notifyPath, errors.New("Benachrichtigungen sind nicht eingerichtet"))
+			return
+		}
+		fn(s.opts.Notify, w, r)
 	}
-	kind := r.FormValue("kind")
-	cfg := notify.ChannelConfig{
-		URL:    strings.TrimSpace(r.FormValue("url")),
-		Token:  strings.TrimSpace(r.FormValue("token")),
-		ChatID: strings.TrimSpace(r.FormValue("chat_id")),
-	}
-	label := strings.TrimSpace(r.FormValue("label"))
-	if err := s.opts.Notify.Add(kind, label, cfg); err != nil {
-		redirectErr(w, r, settingsPath, err)
-		return
-	}
-	redirect(w, r, settingsPath, "Kanal hinzugefügt")
 }
 
-func (s *Server) testNotifyChannel(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err != nil || s.opts.Notify == nil {
-		redirectErr(w, r, settingsPath, errors.New("unbekannter Kanal"))
-		return
-	}
-	if err := s.opts.Notify.Test(r.Context(), id); err != nil {
-		redirectErr(w, r, settingsPath, err)
-		return
-	}
-	redirect(w, r, settingsPath, "Testnachricht verschickt")
-}
-
-func (s *Server) removeNotifyChannel(w http.ResponseWriter, r *http.Request) {
+func recipientID(r *http.Request) (int64, error) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
-		redirectErr(w, r, settingsPath, errors.New("unbekannter Kanal"))
+		return 0, errors.New("unbekannter Empfänger")
+	}
+	return id, nil
+}
+
+func (s *Server) setBot(n Notify, w http.ResponseWriter, r *http.Request) {
+	if err := n.SetBot(r.Context(), r.FormValue("token")); err != nil {
+		redirectErr(w, r, notifyPath, err)
 		return
 	}
-	if err := s.store.DeleteNotifyChannel(id); err != nil {
-		redirectErr(w, r, settingsPath, err)
+	_ = s.store.AddEvent(store.Event{TS: s.engine.Now(), Kind: "config", Message: "Telegram-Bot @" + n.BotName() + " eingerichtet"})
+	redirect(w, r, notifyPath, "Telegram-Bot @"+n.BotName()+" eingerichtet")
+}
+
+func (s *Server) removeBot(n Notify, w http.ResponseWriter, r *http.Request) {
+	if err := n.RemoveBot(); err != nil {
+		redirectErr(w, r, notifyPath, err)
 		return
 	}
-	redirect(w, r, settingsPath, "Kanal entfernt")
+	redirect(w, r, notifyPath, "Telegram-Bot entfernt")
+}
+
+func (s *Server) addRecipient(n Notify, w http.ResponseWriter, r *http.Request) {
+	if err := n.AddRecipient(r.FormValue("name"), formEvents(r)); err != nil {
+		redirectErr(w, r, notifyPath, err)
+		return
+	}
+	redirect(w, r, notifyPath, "Jetzt auf „Mit Telegram verbinden“ tippen und im Chat auf Start")
+}
+
+func (s *Server) updateRecipient(n Notify, w http.ResponseWriter, r *http.Request) {
+	id, err := recipientID(r)
+	if err == nil {
+		err = n.UpdateRecipient(id, r.FormValue("name"), formEvents(r))
+	}
+	if err != nil {
+		redirectErr(w, r, notifyPath, err)
+		return
+	}
+	redirect(w, r, notifyPath, "Benachrichtigungen gespeichert")
+}
+
+func (s *Server) testRecipient(n Notify, w http.ResponseWriter, r *http.Request) {
+	id, err := recipientID(r)
+	if err == nil {
+		err = n.Test(r.Context(), id)
+	}
+	if err != nil {
+		redirectErr(w, r, notifyPath, err)
+		return
+	}
+	redirect(w, r, notifyPath, "Testnachricht verschickt")
+}
+
+func (s *Server) removeRecipient(n Notify, w http.ResponseWriter, r *http.Request) {
+	id, err := recipientID(r)
+	if err == nil {
+		err = n.RemoveRecipient(id)
+	}
+	if err != nil {
+		redirectErr(w, r, notifyPath, err)
+		return
+	}
+	redirect(w, r, notifyPath, "Empfänger entfernt")
 }

@@ -387,6 +387,8 @@ label.check { flex-direction: row; align-items: center; gap: 0.45rem; color: var
 .nintendo-line strong { color: var(--text); }
 
 .notify-events { display: grid; gap: 0.8rem; }
+.recipient { display: grid; gap: 0.9rem; padding: 1rem 0; border-top: 1px solid var(--border); }
+.recipient-head { display: flex; align-items: flex-end; gap: 1rem; flex-wrap: wrap; }
 .channel-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.5rem; }
 .channel-list li { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; padding: 0.5rem 0.75rem; border-radius: 14px; background: var(--surface-2); }
 .games { display: flex; flex-direction: column; gap: 1rem; }

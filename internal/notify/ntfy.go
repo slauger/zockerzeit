@@ -1,4 +1,5 @@
-// Package notify sends push notifications via ntfy.
+// Package notify sends notifications through a shared Telegram bot to the
+// parents who subscribed, and to an optional ntfy topic.
 package notify
 
 import (

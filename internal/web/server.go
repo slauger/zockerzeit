@@ -23,7 +23,6 @@ import (
 	"time"
 
 	"github.com/slauger/zockerzeit/internal/engine"
-	"github.com/slauger/zockerzeit/internal/notify"
 	"github.com/slauger/zockerzeit/internal/rules"
 	"github.com/slauger/zockerzeit/internal/store"
 )
@@ -54,13 +53,17 @@ type Nintendo interface {
 	SyncAll(ctx context.Context)
 }
 
-// Notify manages notification channels and events. Optional.
+// Notify manages the Telegram bot and its recipients. Optional.
 type Notify interface {
 	CanStore() bool
 	HasStatic() bool
-	Enabled(event string) bool
-	SetEnabled(event string, on bool) error
-	Add(kind, label string, c notify.ChannelConfig) error
+	BotName() string
+	SetBot(ctx context.Context, token string) error
+	RemoveBot() error
+	AddRecipient(name string, events []string) error
+	ConnectURL(code string) string
+	UpdateRecipient(id int64, name string, events []string) error
+	RemoveRecipient(id int64) error
 	Test(ctx context.Context, id int64) error
 }
 
@@ -160,10 +163,12 @@ func (s *Server) routes() {
 	m.Handle("POST /einstellungen/nintendo/{id}/entfernen", s.auth(s.nintendoRemove))
 	m.Handle("POST /einstellungen/zugang", s.auth(s.addAccessLink))
 	m.Handle("POST /einstellungen/zugang/{id}/entfernen", s.auth(s.removeAccessLink))
-	m.Handle("POST /einstellungen/benachrichtigungen", s.auth(s.saveNotifyEvents))
-	m.Handle("POST /einstellungen/kanal", s.auth(s.addNotifyChannel))
-	m.Handle("POST /einstellungen/kanal/{id}/test", s.auth(s.testNotifyChannel))
-	m.Handle("POST /einstellungen/kanal/{id}/entfernen", s.auth(s.removeNotifyChannel))
+	m.Handle("POST /einstellungen/telegram", s.auth(s.withNotify(s.setBot)))
+	m.Handle("POST /einstellungen/telegram/entfernen", s.auth(s.withNotify(s.removeBot)))
+	m.Handle("POST /einstellungen/empfaenger", s.auth(s.withNotify(s.addRecipient)))
+	m.Handle("POST /einstellungen/empfaenger/{id}", s.auth(s.withNotify(s.updateRecipient)))
+	m.Handle("POST /einstellungen/empfaenger/{id}/test", s.auth(s.withNotify(s.testRecipient)))
+	m.Handle("POST /einstellungen/empfaenger/{id}/entfernen", s.auth(s.withNotify(s.removeRecipient)))
 	m.Handle("POST /aktion", s.auth(s.action))
 	m.Handle("POST /aktion/{id}/beenden", s.auth(s.endOverride))
 	m.Handle("GET /api/status", s.auth(s.statusAPI))
