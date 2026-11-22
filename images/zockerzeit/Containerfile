@@ -15,7 +15,7 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
     -ldflags="-s -w -X main.version=${VERSION}" \
     -o /out/zockerzeit ./cmd/zockerzeit
 
-FROM registry.access.redhat.com/ubi9/ubi-minimal:9.9
+FROM registry.access.redhat.com/ubi9/ubi-minimal:9.9-1795198179
 LABEL org.opencontainers.image.source="https://github.com/slauger/zockerzeit" \
       org.opencontainers.image.description="Play time dashboard for parents based on the Nintendo Switch parental controls" \
       org.opencontainers.image.licenses="Apache-2.0"
