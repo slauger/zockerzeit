@@ -299,6 +299,9 @@ func TestPlanSwitch(t *testing.T) {
 		t.Fatalf("overrides = %+v", ovs)
 	}
 	_, body := e.get("/")
+	if strings.Contains(body, "disabled") || !strings.Contains(body, `<option value="gesperrt">Gesperrt (gilt gerade)</option>`) || !strings.Contains(body, `<option value="ferien" selected>Ferien</option>`) {
+		t.Fatal("plan choice: the plan in force is marked, the first other one picked")
+	}
 	if !strings.Contains(body, "Plan <strong>Gesperrt</strong> bis") || !strings.Contains(body, "Zurück zum Standardplan") {
 		t.Fatal("locked plan missing on the dashboard")
 	}

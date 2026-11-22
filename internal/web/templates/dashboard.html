@@ -113,7 +113,7 @@
 {{end}}
 
 {{define "planswitch"}}
-<select name="plan" aria-label="Plan">{{$cur := .Current}}{{range .Plans}}<option value="{{.ID}}" {{if eq .ID $cur}}disabled{{end}}>{{.Name}}</option>{{end}}</select>
+<select name="plan" aria-label="Plan">{{$cur := .Current}}{{$picked := false}}{{range .Plans}}<option value="{{.ID}}"{{if and (ne .ID $cur) (not $picked)}} selected{{$picked = true}}{{end}}>{{.Name}}{{if eq .ID $cur}} (gilt gerade){{end}}</option>{{end}}</select>
 <select name="dauer" aria-label="Wie lange" onchange="this.form.querySelector('[name=bis]').hidden = this.value !== 'datum'">
   <option value="morgen">bis morgen früh</option>
   <option value="datum">bis einschließlich</option>
