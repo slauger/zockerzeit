@@ -13,6 +13,7 @@
 {{define "content"}}
 {{with .Data}}
 {{$v := .View}}
+{{if .Preview}}<a class="kid-preview" href="/kinder#kind-{{$v.Profile.ID}}">&larr; Zurück zur Elternansicht <span>Vorschau der Kinder-App</span></a>{{end}}
 <div class="kid-app" data-kid>
 {{if not .StatsPage}}
 <section class="kid {{if $v.Status.Allowed}}is-allowed{{else}}is-paused{{end}}">

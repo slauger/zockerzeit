@@ -508,6 +508,8 @@ label.check { flex-direction: row; align-items: center; gap: 0.45rem; color: var
 .kid-facts { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; justify-content: center; gap: 0.5rem; }
 .kid-facts li { padding: 0.6rem 1.1rem; border-radius: 999px; background: var(--surface-2); font-weight: 700; }
 .kid-facts .is-paused { color: var(--stop-text); }
+.kid-preview { display: flex; flex-wrap: wrap; gap: 0.25rem 0.75rem; align-items: baseline; margin-bottom: 1rem; padding: 0.7rem 1rem; border-radius: 14px; background: var(--surface-2); color: var(--text); font-weight: 700; text-decoration: none; }
+.kid-preview span { color: var(--text-muted); font-weight: 400; font-size: 0.9rem; }
 .kid-statslink { margin-top: 1.25rem; padding: 0.85rem 1.6rem; border-radius: 999px; background: var(--brand); color: #fff; font-weight: 700; font-size: 1.1rem; text-decoration: none; }
 .kid-statslink::after { content: " \2192"; }
 .kid-statslink:focus-visible, .kid-back:focus-visible { outline: 3px solid var(--play); outline-offset: 3px; }

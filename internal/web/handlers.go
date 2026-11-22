@@ -396,8 +396,11 @@ func atoiDefault(s string, def int) int {
 type kidData struct {
 	View engine.ProfileView
 	// Base is the address of this kid app: /k/<token> or /kind/<id>.
-	Base   string
-	Window string
+	Base string
+	// Preview is set when a parent looks at the kid app by name; it gets a
+	// way back, the installed parent app has no browser bar.
+	Preview bool
+	Window  string
 	// Linked is true when Nintendo consoles are known, so there are
 	// statistics to link to.
 	Linked bool
@@ -427,7 +430,7 @@ func (s *Server) kidPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	consoles, _ := s.store.NintendoDevices()
-	s.render(w, r, "kind", v.Profile.Name, kidData{View: v, Base: base, Window: kidWindow(v.Plan, s.engine.Now()), Linked: len(consoles) > 0})
+	s.render(w, r, "kind", v.Profile.Name, kidData{View: v, Base: base, Preview: r.PathValue("token") == "", Window: kidWindow(v.Plan, s.engine.Now()), Linked: len(consoles) > 0})
 }
 
 // kidStatsPage shows a kid its own play time and games. It lives below the
@@ -439,7 +442,7 @@ func (s *Server) kidStatsPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.render(w, r, "kind", v.Profile.Name, kidData{
-		View: v, Base: base, StatsPage: true, Ranges: kidRanges,
+		View: v, Base: base, Preview: r.PathValue("token") == "", StatsPage: true, Ranges: kidRanges,
 		Stats: s.kidStats(v.Profile, v.Plan, r.URL.Query().Get("zeitraum"), s.engine.Now(), base),
 	})
 }

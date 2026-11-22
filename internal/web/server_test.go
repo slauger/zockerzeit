@@ -875,6 +875,9 @@ func TestKidStats(t *testing.T) {
 	if err := demo.SeedNintendo(e.store, now); err != nil {
 		t.Fatal(err)
 	}
+	if _, body := e.get("/k/kidtoken"); strings.Contains(body, "Zurück zur Elternansicht") {
+		t.Fatal("the kid app must not lead to the parents")
+	}
 	if _, body := e.get("/k/kidtoken"); !strings.Contains(body, `href="/k/kidtoken/statistik"`) || !strings.Contains(body, `href="/k/kidtoken/manifest.webmanifest"`) || strings.Contains(body, "So viel hast du gezockt") {
 		t.Fatal("the main page links to the statistics instead of showing them")
 	}
@@ -930,6 +933,15 @@ func TestKidStats(t *testing.T) {
 	}
 	if _, body := e.get("/bild/" + key); body == "png" {
 		t.Fatal("parent image route open without login")
+	}
+}
+
+func TestKidPreview(t *testing.T) {
+	e := newEnv(t, "")
+	for _, path := range []string{"/kind/max", "/kind/max/statistik"} {
+		if _, body := e.get(path); !strings.Contains(body, `href="/kinder#kind-max"`) {
+			t.Errorf("%s: no way back for parents", path)
+		}
 	}
 }
 
