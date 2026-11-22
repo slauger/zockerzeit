@@ -306,7 +306,7 @@ func (h *Hub) Poll(ctx context.Context) (bool, error) {
 			continue
 		}
 		r, err := h.store.ConnectNotifyRecipient(strings.TrimSpace(code), chat)
-		reply := "Hallo! Zum Verbinden bitte in Zockerzeit unter Einstellungen auf „Mit Telegram verbinden“ tippen."
+		reply := "Hallo! Zum Verbinden bitte in Zockerzeit unter Einstellungen auf \"Mit Telegram verbinden\" tippen."
 		if err == nil {
 			reply = "Hallo " + r.Name + "! Ab jetzt schickt dir Zockerzeit hier Nachrichten. Was genau, stellst du in Zockerzeit unter Einstellungen ein."
 			h.log.Info("Telegram recipient connected", "recipient", r.Name)

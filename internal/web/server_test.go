@@ -985,13 +985,13 @@ func TestAccessLinks(t *testing.T) {
 	// A parent link for a phone, shown once.
 	_, body := e.post("/einstellungen/zugang", url.Values{"kind": {"parent"}, "label": {"iPhone Papa"}})
 	m := regexp.MustCompile(`value="(http://[^"]+/zugang/([A-Za-z0-9_-]+))"`).FindStringSubmatch(body)
-	if m == nil || !strings.Contains(body, "Elternzugang für „iPhone Papa“") {
+	if m == nil || !strings.Contains(body, "Elternzugang für \"iPhone Papa\"") {
 		t.Fatal("new parent link not shown")
 	}
 	parentToken := m[2]
 	_, body = e.post("/einstellungen/zugang", url.Values{"kind": {"kid"}, "profile": {"mia"}, "label": {"Tablet"}})
 	k := regexp.MustCompile(`value="http://[^"]+/k/([A-Za-z0-9_-]+)"`).FindStringSubmatch(body)
-	if k == nil || !strings.Contains(body, "Kinder-App für Mia auf „Tablet“") {
+	if k == nil || !strings.Contains(body, "Kinder-App für Mia auf \"Tablet\"") {
 		t.Fatal("new kid link not shown")
 	}
 	if _, body := e.get("/k/" + k[1]); !strings.Contains(body, "Hallo Mia!") {

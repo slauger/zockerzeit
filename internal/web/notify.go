@@ -107,7 +107,7 @@ func (s *Server) addRecipient(n Notify, w http.ResponseWriter, r *http.Request) 
 		redirectErr(w, r, notifyPath, err)
 		return
 	}
-	redirect(w, r, notifyPath, "Jetzt auf „Mit Telegram verbinden“ tippen und im Chat auf Start")
+	redirect(w, r, notifyPath, "Jetzt auf \"Mit Telegram verbinden\" tippen und im Chat auf Start")
 }
 
 func (s *Server) updateRecipient(n Notify, w http.ResponseWriter, r *http.Request) {

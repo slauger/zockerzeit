@@ -25,7 +25,7 @@
 
   {{with .Access.New}}
   <div class="new-link">
-    <p><strong>{{if .Kid}}Kinder-App für {{.Kid}} auf „{{.Label}}“{{else}}Elternzugang für „{{.Label}}“{{end}}.</strong> Der Link wird nur jetzt angezeigt.</p>
+    <p><strong>{{if .Kid}}Kinder-App für {{.Kid}} auf "{{.Label}}"{{else}}Elternzugang für "{{.Label}}"{{end}}.</strong> Der Link wird nur jetzt angezeigt.</p>
     <div class="link-row">
       <input class="link-field" readonly value="{{.URL}}" aria-label="Zugangslink" onclick="this.select()">
       <button type="button" class="primary" data-url="{{.URL}}" onclick="navigator.clipboard.writeText(this.dataset.url).then(() => { this.textContent = 'Kopiert' })">Kopieren</button>
