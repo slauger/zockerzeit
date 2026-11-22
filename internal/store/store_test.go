@@ -10,8 +10,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/slauger/zockerzeit/internal/rules"
 )
 
 func newStore(t *testing.T) *Store {
@@ -50,26 +48,19 @@ func TestOpenFileAndReopen(t *testing.T) {
 
 func TestProfiles(t *testing.T) {
 	s := newStore(t)
-	p := Profile{
-		ID: "max", Name: "Max",
-		Rules: RuleSet{DailyMinutes: 90, Schedule: rules.Schedule{time.Monday: {{Start: 900, End: 1080}}}},
-	}
+	p := Profile{ID: "max", Name: "Max", PlanID: "schule"}
 	if err := s.SaveProfile(p); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.SaveProfile(Profile{ID: "mia", Name: "Mia"}); err != nil {
 		t.Fatal(err)
 	}
-	p.Rules.DailyMinutes = 60
+	p.PlanID = "ferien"
 	if err := s.SaveProfile(p); err != nil {
 		t.Fatal(err)
 	}
-	got, err := s.Profile("max")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Rules.Limits().DailyMinutes != 60 || got.Rules.Schedule[time.Monday][0].End != 1080 {
-		t.Fatalf("unexpected profile: %+v", got)
+	if got, err := s.Profile("max"); err != nil || got.PlanID != "ferien" {
+		t.Fatalf("unexpected profile: %+v %v", got, err)
 	}
 	all, _ := s.Profiles()
 	if len(all) != 2 || all[0].ID != "max" {
@@ -91,10 +82,102 @@ func TestProfiles(t *testing.T) {
 	}
 }
 
+func TestPlans(t *testing.T) {
+	s := newStore(t)
+	school := Plan{ID: "schule", Name: "Schule", Days: map[time.Weekday]PlanDay{
+		time.Monday:   {From: 9 * 60, To: 19 * 60, Limit: 60},
+		time.Saturday: {Limit: -1},
+	}}
+	if err := s.SavePlan(school); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SavePlan(Plan{ID: PlanFree, Name: "x"}); err == nil {
+		t.Fatal("built-in plan saved")
+	}
+	got, err := s.Plan("schule")
+	if err != nil || got.Day(time.Monday).Limit != 60 || got.Day(time.Sunday).Limit != 0 || got.BuiltIn() {
+		t.Fatalf("plan = %+v %v", got, err)
+	}
+	if w, ok := got.Day(time.Monday).Window(); !ok || w.End != 19*60 {
+		t.Fatalf("window = %v %v", w, ok)
+	}
+	if _, ok := got.Day(time.Saturday).Window(); ok {
+		t.Fatal("whole day has no window")
+	}
+	// Monday 10:00: window 09:00-19:00, 60 minutes; Saturday all day,
+	// Sunday not at all.
+	monday := time.Date(2026, 11, 23, 10, 0, 0, 0, time.UTC)
+	l := got.Limits(monday)
+	if l.DailyMinutes != 60 || len(l.Schedule[time.Saturday]) != 1 || l.Schedule[time.Saturday][0].End != 1440 || len(l.Schedule[time.Sunday]) != 0 {
+		t.Fatalf("limits = %+v", l)
+	}
+	if l := got.Limits(monday.AddDate(0, 0, 5)); l.DailyMinutes != 0 {
+		t.Fatalf("saturday limit = %d", l.DailyMinutes)
+	}
+	for _, id := range []string{PlanFree, PlanLocked} {
+		if p, err := s.Plan(id); err != nil || !p.BuiltIn() {
+			t.Fatalf("built-in %s: %+v %v", id, p, err)
+		}
+	}
+	if free, _ := s.Plan(PlanFree); free.Day(time.Monday).Limit != -1 {
+		t.Fatal("Frei has a limit")
+	}
+	if _, err := s.Plan("nope"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("unknown plan: %v", err)
+	}
+	if plans, _ := s.Plans(); len(plans) != 1 {
+		t.Fatalf("plans = %+v", plans)
+	}
+
+	// The active plan: the newest switch, otherwise the standard plan.
+	kid := Profile{ID: "max", Name: "Max", PlanID: "schule"}
+	if err := s.SaveProfile(kid); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(1_000_000, 0)
+	if p, until, err := s.ActivePlan(kid, nil); err != nil || p.ID != "schule" || !until.IsZero() {
+		t.Fatalf("standard: %+v %v %v", p, until, err)
+	}
+	ovs := []Override{
+		{Kind: KindPlan, ProfileID: "max", PlanID: PlanLocked, Until: now.Add(time.Hour), CreatedAt: now},
+		{Kind: KindPlan, ProfileID: "max", PlanID: PlanFree, Until: now.Add(2 * time.Hour), CreatedAt: now.Add(time.Second)},
+		{Kind: KindPlan, ProfileID: "mia", PlanID: PlanLocked, Until: now.Add(time.Hour), CreatedAt: now.Add(time.Minute)},
+		{Kind: KindBonus, ProfileID: "max", Minutes: 5, CreatedAt: now.Add(time.Hour)},
+	}
+	if p, until, _ := s.ActivePlan(kid, ovs); p.ID != PlanFree || !until.Equal(now.Add(2*time.Hour)) {
+		t.Fatalf("switch: %+v %v", p, until)
+	}
+	if p, _, _ := s.ActivePlan(kid, []Override{{Kind: KindPlan, ProfileID: "max", PlanID: "geloescht"}}); p.ID != "schule" {
+		t.Fatalf("switch to a deleted plan: %+v", p)
+	}
+	if _, _, err := s.ActivePlan(Profile{ID: "x"}, nil); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("no plan: %v", err)
+	}
+
+	if err := s.DeletePlan("schule"); !errors.Is(err, ErrPlanInUse) {
+		t.Fatalf("delete in use: %v", err)
+	}
+	if err := s.SavePlan(Plan{ID: "ferien", Name: "Ferien"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddOverride(Override{Kind: KindPlan, PlanID: "ferien", ProfileID: "max", StartsAt: now, Until: now.Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeletePlan("ferien"); err != nil {
+		t.Fatal(err)
+	}
+	if ovs, _ := s.ActiveOverrides(now, time.UTC); len(ovs) != 0 {
+		t.Fatalf("switch to a deleted plan left: %+v", ovs)
+	}
+	if err := s.DeletePlan("ferien"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("delete twice: %v", err)
+	}
+}
+
 func TestOverrides(t *testing.T) {
 	s := newStore(t)
 	now := time.Date(2026, 11, 18, 16, 0, 0, 0, time.UTC)
-	id, err := s.AddOverride(Override{Kind: KindRelease, ProfileID: "mia", DeviceID: "D1", StartsAt: now, Until: now.Add(time.Hour)})
+	id, err := s.AddOverride(Override{Kind: KindPlan, ProfileID: "mia", PlanID: PlanFree, StartsAt: now, Until: now.Add(time.Hour)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +191,7 @@ func TestOverrides(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(active) != 1 || active[0].ID != id || active[0].Kind != KindRelease || active[0].DeviceID != "D1" {
+	if len(active) != 1 || active[0].ID != id || active[0].Kind != KindPlan || active[0].PlanID != PlanFree {
 		t.Fatalf("unexpected active overrides: %+v", active)
 	}
 	if err := s.EndOverride(id, now.Add(time.Minute)); err != nil {
@@ -184,11 +267,12 @@ func TestMigrationToNintendoOnly(t *testing.T) {
 			t.Errorf("console %s = %q/%q, want %v", d.DeviceID, d.Name, d.ProfileID, w)
 		}
 	}
-	if p, _ := s.Profile("max"); p.Rules.DailyMinutes != 90 {
+	if p, _ := s.Profile("max"); p.PlanID != "max" {
 		t.Fatalf("profile = %+v", p)
 	}
+	// Lending is gone since, the bonus stays.
 	ovs, _ := s.ActiveOverrides(time.Unix(100, 0), time.UTC)
-	if len(ovs) != 2 || ovs[0].Kind != KindRelease || ovs[0].DeviceID != "D1" || ovs[1].Kind != KindBonus {
+	if len(ovs) != 1 || ovs[0].Kind != KindBonus {
 		t.Fatalf("overrides = %+v", ovs)
 	}
 	if ev, _ := s.Events(10, time.UTC); len(ev) != 1 || ev[0].DeviceID != "aa" {
@@ -200,6 +284,58 @@ func TestMigrationToNintendoOnly(t *testing.T) {
 	var tables int
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE name IN ('devices', 'samples')`).Scan(&tables); err != nil || tables != 0 {
 		t.Fatalf("old tables remain: %d %v", tables, err)
+	}
+}
+
+// TestMigrationToPlans turns the rules of each kid into a plan of its own.
+func TestMigrationToPlans(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old.db")
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := slices.IndexFunc(migrations, func(m string) bool { return strings.Contains(m, "CREATE TABLE plans") })
+	stmts := append([]string{}, migrations[:last]...)
+	stmts = append(stmts,
+		fmt.Sprintf(`PRAGMA user_version = %d`, last),
+		`INSERT INTO profiles (id, name, daily_minutes, schedule) VALUES
+			('max', 'Max', 300, '{"1":[{"start":540,"end":1320}],"6":[{"start":540,"end":1320}],"0":[]}'),
+			('mia', 'Mia', 0, '{"1":[{"start":540,"end":1200}]}')`,
+		`INSERT INTO overrides (kind, profile_id, device_id, starts_at, until, created_at) VALUES
+			('free', 'max', '', 0, 9999999999, 0), ('release', 'mia', 'D1', 0, 9999999999, 0)`,
+	)
+	for _, stmt := range stmts {
+		if _, err := db.Exec(stmt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = db.Close()
+
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	kid, _ := s.Profile("max")
+	plan, err := s.Plan(kid.PlanID)
+	if err != nil || plan.Name != "Max" {
+		t.Fatalf("plan = %+v %v", plan, err)
+	}
+	if d := plan.Day(time.Monday); d.From != 540 || d.To != 1320 || d.Limit != 300 {
+		t.Fatalf("monday = %+v", d)
+	}
+	if d := plan.Day(time.Sunday); d.Limit != 0 {
+		t.Fatalf("a day without window had no play time: %+v", d)
+	}
+	if d := plan.Day(time.Tuesday); d.Limit != 0 {
+		t.Fatalf("a missing day had no play time: %+v", d)
+	}
+	if mia, _ := s.Plan("mia"); mia.Day(time.Monday).Limit != -1 {
+		t.Fatalf("no daily limit: %+v", mia.Day(time.Monday))
+	}
+	ovs, _ := s.ActiveOverrides(time.Unix(100, 0), time.UTC)
+	if len(ovs) != 1 || ovs[0].Kind != KindPlan || ovs[0].PlanID != PlanFree {
+		t.Fatalf("overrides = %+v", ovs)
 	}
 }
 

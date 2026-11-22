@@ -11,21 +11,32 @@ import (
 	"github.com/slauger/zockerzeit/internal/store"
 )
 
-// Seed creates two profiles, unless the database already contains profiles.
+// Seed creates two kids with a plan each, unless the database already
+// contains kids.
 func Seed(st *store.Store) error {
 	if ps, err := st.Profiles(); err != nil || len(ps) > 0 {
 		return err
 	}
-	weekday := []rules.Window{{Start: 15 * 60, End: 18*60 + 30}}
-	weekend := []rules.Window{{Start: 10 * 60, End: 12 * 60}, {Start: 15 * 60, End: 19 * 60}}
-	sched := rules.Schedule{
-		time.Monday: weekday, time.Tuesday: weekday, time.Wednesday: weekday, time.Thursday: weekday,
-		time.Friday: weekday, time.Saturday: weekend, time.Sunday: weekend,
+	plan := func(id, name string, weekday, weekend store.PlanDay) store.Plan {
+		p := store.Plan{ID: id, Name: name, Days: map[time.Weekday]store.PlanDay{}}
+		for _, d := range rules.Weekdays {
+			p.Days[d] = weekday
+			if d == time.Saturday || d == time.Sunday {
+				p.Days[d] = weekend
+			}
+		}
+		return p
 	}
-	for _, p := range []store.Profile{
-		{ID: "max", Name: "Max", Rules: store.RuleSet{DailyMinutes: 90, Schedule: sched}},
-		{ID: "mia", Name: "Mia", Rules: store.RuleSet{DailyMinutes: 45, Schedule: sched}},
+	for _, p := range []store.Plan{
+		plan("schule-max", "Schule Max", store.PlanDay{From: 9 * 60, To: 19 * 60, Limit: 90}, store.PlanDay{From: 9 * 60, To: 20 * 60, Limit: 120}),
+		plan("schule-mia", "Schule Mia", store.PlanDay{From: 9 * 60, To: 18*60 + 30, Limit: 45}, store.PlanDay{From: 9 * 60, To: 19 * 60, Limit: 60}),
+		plan("ferien", "Ferien", store.PlanDay{From: 9 * 60, To: 21 * 60, Limit: 120}, store.PlanDay{From: 9 * 60, To: 21 * 60, Limit: 120}),
 	} {
+		if err := st.SavePlan(p); err != nil {
+			return err
+		}
+	}
+	for _, p := range []store.Profile{{ID: "max", Name: "Max", PlanID: "schule-max"}, {ID: "mia", Name: "Mia", PlanID: "schule-mia"}} {
 		if err := st.SaveProfile(p); err != nil {
 			return err
 		}

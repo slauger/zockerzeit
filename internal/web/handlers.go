@@ -22,7 +22,9 @@ type dashboardData struct {
 	Names    map[string]string
 	At       time.Time
 	// Unowned are consoles that count for nobody yet.
-	Unowned []engine.Console
+	Unowned []store.NintendoDevice
+	// Plans can be switched to, the built-in ones last.
+	Plans []store.Plan
 }
 
 func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
@@ -34,10 +36,11 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 	data := dashboardData{Views: views, Names: s.profileNames(), At: s.engine.Now(), Nintendo: s.nintendoByProfile()}
 	consoles, _ := s.engine.Consoles()
 	for _, c := range consoles {
-		if c.HeldBy == "" {
+		if c.ProfileID == "" {
 			data.Unowned = append(data.Unowned, c)
 		}
 	}
+	data.Plans = s.allPlans()
 	s.render(w, r, "dashboard", "Übersicht", data)
 }
 
@@ -56,66 +59,57 @@ func (s *Server) statusAPI(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) action(w http.ResponseWriter, r *http.Request) {
 	now := s.engine.Now()
 	back := backTarget(r)
-	profileID := r.FormValue("profile")
-	minutes, _ := strconv.Atoi(r.FormValue("minutes"))
-	tomorrow := rules.StartOfDay(now).AddDate(0, 0, 1)
-
-	if r.FormValue("action") == "free" {
-		s.free(w, r, now)
-		return
-	}
-	o := store.Override{StartsAt: now, ProfileID: profileID, Minutes: minutes}
-	var msg string
 	switch r.FormValue("action") {
+	case "plan":
+		s.switchPlan(w, r, now)
+	case "sperren":
+		r.Form.Set("plan", store.PlanLocked)
+		r.Form.Set("dauer", "morgen")
+		s.switchPlan(w, r, now)
 	case "bonus":
-		o.Kind = store.KindBonus
-		o.Until = tomorrow
-		msg = fmt.Sprintf("%s bekommt heute %d Min extra", s.profileName(profileID), minutes)
-	case "release":
-		c, err := s.store.NintendoDevice(r.FormValue("device"))
-		if err != nil {
-			redirectErr(w, r, back, errors.New("bitte eine Konsole wählen"))
-			return
-		}
-		o.Kind = store.KindRelease
-		o.DeviceID = c.DeviceID
-		o.Until = now.Add(time.Duration(minutes) * time.Minute)
-		if minutes <= 0 || o.Until.After(tomorrow) {
-			o.Until = tomorrow
-			o.Minutes = int(tomorrow.Sub(now).Minutes())
-		}
-		msg = fmt.Sprintf("%s ist bis %s bei %s", c.Name, o.Until.Format("15:04"), s.profileName(profileID))
+		s.bonus(w, r, now)
 	default:
 		redirectErr(w, r, back, errors.New("unbekannte Aktion"))
-		return
 	}
-	if _, err := s.store.Profile(profileID); err != nil || o.Minutes == 0 || (o.Kind == store.KindRelease && o.Minutes < 0) {
+}
+
+// bonus gives a kid extra minutes today, in Zockerzeit and as extra play
+// time on the consoles.
+func (s *Server) bonus(w http.ResponseWriter, r *http.Request, now time.Time) {
+	back := backTarget(r)
+	minutes, _ := strconv.Atoi(r.FormValue("minutes"))
+	p, err := s.store.Profile(r.FormValue("profile"))
+	if err != nil || minutes <= 0 {
 		redirectErr(w, r, back, errors.New("bitte Kind und Minuten angeben"))
 		return
 	}
-	o.Note = msg
+	msg := fmt.Sprintf("%s bekommt heute %d Min extra", p.Name, minutes)
+	o := store.Override{Kind: store.KindBonus, ProfileID: p.ID, Minutes: minutes, StartsAt: now, Until: rules.StartOfDay(now).AddDate(0, 0, 1), Note: msg}
 	if _, err := s.store.AddOverride(o); err != nil {
 		redirectErr(w, r, back, err)
 		return
 	}
-	_ = s.store.AddEvent(store.Event{TS: now, ProfileID: o.ProfileID, DeviceID: o.DeviceID, Kind: "parent", Message: msg})
+	_ = s.store.AddEvent(store.Event{TS: now, ProfileID: p.ID, Kind: "parent", Message: msg})
+	if s.opts.Nintendo != nil {
+		if err := s.opts.Nintendo.AddExtraTime(r.Context(), p.ID, minutes); err != nil {
+			s.applyNow(r)
+			redirectErr(w, r, back, fmt.Errorf("%s, aber nicht an der Switch: %w", msg, err))
+			return
+		}
+	}
 	s.applyNow(r)
 	redirect(w, r, back, msg)
 }
 
-// free switches the rules of one kid or all kids off until the next
-// morning, or including a date (bis=YYYY-MM-DD). A morning is the start of
-// the first time window of a day; after midnight the next morning is today's.
-func (s *Server) free(w http.ResponseWriter, r *http.Request, now time.Time) {
+// switchPlan puts one kid or all kids on another plan: until the next
+// morning (dauer=morgen), including a date (dauer=datum, bis=YYYY-MM-DD) or
+// for good (dauer=dauerhaft), which makes it the standard plan.
+func (s *Server) switchPlan(w http.ResponseWriter, r *http.Request, now time.Time) {
 	back := backTarget(r)
-	var day time.Time // the day whose morning ends the free time, zero for the next morning
-	if v := r.FormValue("bis"); v != "" {
-		d, err := time.ParseInLocation("2006-01-02", v, s.engine.Location())
-		if err != nil || d.Before(rules.StartOfDay(now)) || d.After(now.AddDate(1, 0, 0)) {
-			redirectErr(w, r, back, errors.New("bitte ein Datum ab heute und höchstens ein Jahr voraus wählen"))
-			return
-		}
-		day = d.AddDate(0, 0, 1)
+	plan, err := s.store.Plan(r.FormValue("plan"))
+	if err != nil {
+		redirectErr(w, r, back, errors.New("bitte einen Plan wählen"))
+		return
 	}
 	var kids []store.Profile
 	if id := r.FormValue("profile"); id == "alle" {
@@ -127,43 +121,89 @@ func (s *Server) free(w http.ResponseWriter, r *http.Request, now time.Time) {
 		redirectErr(w, r, back, errors.New("bitte ein Kind wählen"))
 		return
 	}
+	var day time.Time // the day whose morning ends the switch, zero for the next morning
+	switch r.FormValue("dauer") {
+	case "morgen":
+	case "datum":
+		d, err := time.ParseInLocation("2006-01-02", r.FormValue("bis"), s.engine.Location())
+		if err != nil || d.Before(rules.StartOfDay(now)) || d.After(now.AddDate(1, 0, 0)) {
+			redirectErr(w, r, back, errors.New("bitte ein Datum ab heute und höchstens ein Jahr voraus wählen"))
+			return
+		}
+		day = d.AddDate(0, 0, 1)
+	case "dauerhaft":
+		if plan.BuiltIn() {
+			redirectErr(w, r, back, errors.New("Frei und Gesperrt gehen nur auf Zeit"))
+			return
+		}
+	default:
+		redirectErr(w, r, back, errors.New("bitte wählen, wie lange"))
+		return
+	}
+	ovs, _ := s.store.ActiveOverrides(now, s.engine.Location())
 	var names []string
 	var until time.Time
 	for _, p := range kids {
-		if day.IsZero() {
-			until = morningOf(p.Rules.Schedule, now)
-			if !until.After(now) {
-				until = morningOf(p.Rules.Schedule, rules.StartOfDay(now).AddDate(0, 0, 1))
+		// A new switch replaces the running one.
+		for _, o := range ovs {
+			if o.Kind == store.KindPlan && o.ProfileID == p.ID {
+				_ = s.store.EndOverride(o.ID, now)
 			}
-		} else {
-			until = morningOf(p.Rules.Schedule, day)
 		}
-		msg := fmt.Sprintf("%s hat frei bis %s Uhr", p.Name, until.Format("02.01. 15:04"))
-		o := store.Override{Kind: store.KindFree, ProfileID: p.ID, StartsAt: now, Until: until, Minutes: int(until.Sub(now).Minutes()), Note: msg}
+		names = append(names, p.Name)
+		if r.FormValue("dauer") == "dauerhaft" {
+			p.PlanID = plan.ID
+			if err := s.store.SaveProfile(p); err != nil {
+				redirectErr(w, r, back, err)
+				return
+			}
+			_ = s.store.AddEvent(store.Event{TS: now, ProfileID: p.ID, Kind: "parent", Message: fmt.Sprintf("%s: Standardplan jetzt %s", p.Name, plan.Name)})
+			continue
+		}
+		standard, err := s.store.Plan(p.PlanID)
+		if err != nil {
+			standard = plan
+		}
+		if day.IsZero() {
+			until = nextMorning(standard, now)
+		} else {
+			until = morningOf(standard, day)
+		}
+		msg := fmt.Sprintf("%s: %s bis %s Uhr", p.Name, plan.Name, until.Format("02.01. 15:04"))
+		o := store.Override{Kind: store.KindPlan, PlanID: plan.ID, ProfileID: p.ID, StartsAt: now, Until: until, Minutes: int(until.Sub(now).Minutes()), Note: msg}
 		if _, err := s.store.AddOverride(o); err != nil {
 			redirectErr(w, r, back, err)
 			return
 		}
 		_ = s.store.AddEvent(store.Event{TS: now, ProfileID: p.ID, Kind: "parent", Message: msg})
-		names = append(names, p.Name)
 	}
-	s.applyNow(r)
-	redirect(w, r, back, fmt.Sprintf("%s: frei bis %s Uhr", strings.Join(names, " und "), until.Format("02.01. 15:04")))
+	s.applyPlans(r)
+	msg := fmt.Sprintf("%s: %s", strings.Join(names, " und "), plan.Name)
+	if !until.IsZero() {
+		msg += " bis " + until.Format("02.01. 15:04") + " Uhr"
+	} else {
+		msg += " ist jetzt der Standardplan"
+	}
+	redirect(w, r, back, msg)
 }
 
-// morningOf is when the first time window of day starts, or midnight if
-// there is none.
-func morningOf(s rules.Schedule, day time.Time) time.Time {
+// morningOf is when play may start on day according to plan, or midnight
+// if the day has no time window.
+func morningOf(plan store.Plan, day time.Time) time.Time {
 	start := rules.StartOfDay(day)
-	ws := s[start.Weekday()]
-	if len(ws) == 0 {
-		return start
+	if w, ok := plan.Day(start.Weekday()).Window(); ok {
+		return start.Add(time.Duration(w.Start) * time.Minute)
 	}
-	m := ws[0].Start
-	for _, w := range ws {
-		m = min(m, w.Start)
+	return start
+}
+
+// nextMorning is the next morning after now: today's, if it is still
+// ahead (after midnight), otherwise tomorrow's.
+func nextMorning(plan store.Plan, now time.Time) time.Time {
+	if t := morningOf(plan, now); t.After(now) {
+		return t
 	}
-	return start.Add(time.Duration(m) * time.Minute)
+	return morningOf(plan, rules.StartOfDay(now).AddDate(0, 0, 1))
 }
 
 func (s *Server) endOverride(w http.ResponseWriter, r *http.Request) {
@@ -179,7 +219,7 @@ func (s *Server) endOverride(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = s.store.AddEvent(store.Event{TS: now, Kind: "parent", Message: "Ausnahme vorzeitig beendet"})
-	s.applyNow(r)
+	s.applyPlans(r)
 	redirect(w, r, back, "Ausnahme beendet")
 }
 
@@ -191,11 +231,19 @@ func backTarget(r *http.Request) string {
 	return "/"
 }
 
-// applyNow runs a poll right away so that parent decisions take effect
+// applyNow evaluates the rules right away so that parent decisions show
 // without waiting for the next interval.
 func (s *Server) applyNow(r *http.Request) {
 	if err := s.engine.Tick(r.Context()); err != nil {
-		s.log.Warn("immediate poll failed", "err", err)
+		s.log.Warn("immediate evaluation failed", "err", err)
+	}
+}
+
+// applyPlans evaluates and writes changed plans to the consoles right away.
+func (s *Server) applyPlans(r *http.Request) {
+	s.applyNow(r)
+	if s.opts.Nintendo != nil {
+		s.opts.Nintendo.Apply(r.Context(), false)
 	}
 }
 
@@ -215,100 +263,15 @@ func (s *Server) profileNames() map[string]string {
 	return out
 }
 
-// --- rules --------------------------------------------------------------
-
-type rulesData struct {
-	Profiles []store.Profile
-	Weekdays []time.Weekday
-}
-
-// newProfileTemplate is the starting point offered for a new profile.
-func newProfileTemplate() store.Profile {
-	weekday := []rules.Window{{Start: 15 * 60, End: 18*60 + 30}}
-	weekend := []rules.Window{{Start: 10 * 60, End: 12 * 60}, {Start: 15 * 60, End: 19 * 60}}
-	p := store.Profile{Rules: store.RuleSet{DailyMinutes: 60, Schedule: rules.Schedule{}}}
-	for _, d := range rules.Weekdays {
-		p.Rules.Schedule[d] = weekday
-		if d == time.Saturday || d == time.Sunday {
-			p.Rules.Schedule[d] = weekend
+// allPlans returns the stored plans and then Frei and Gesperrt.
+func (s *Server) allPlans() []store.Plan {
+	plans, _ := s.store.Plans()
+	for _, id := range []string{store.PlanFree, store.PlanLocked} {
+		if p, err := s.store.Plan(id); err == nil {
+			plans = append(plans, p)
 		}
 	}
-	return p
-}
-
-func (s *Server) rulesPage(w http.ResponseWriter, r *http.Request) {
-	profiles, err := s.store.Profiles()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	profiles = append(profiles, newProfileTemplate())
-	s.render(w, r, "regeln", "Regeln", rulesData{Profiles: profiles, Weekdays: rules.Weekdays})
-}
-
-// parseRuleSet reads the limits and windows from the form.
-func parseRuleSet(r *http.Request) (store.RuleSet, error) {
-	rs := store.RuleSet{Schedule: rules.Schedule{}}
-	var err error
-	if rs.DailyMinutes, err = atoiEmpty(r.FormValue("daily")); err != nil || rs.DailyMinutes < 0 {
-		return rs, errors.New("Tageslimit muss eine Zahl ab 0 sein")
-	}
-	for _, d := range rules.Weekdays {
-		ws, err := rules.ParseWindows(r.FormValue("win_" + strconv.Itoa(int(d))))
-		if err != nil {
-			return rs, fmt.Errorf("%s: %w", rules.WeekdayNames[d], err)
-		}
-		if len(ws) > 0 {
-			rs.Schedule[d] = ws
-		}
-	}
-	return rs, nil
-}
-
-func atoiEmpty(s string) (int, error) {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return 0, nil
-	}
-	return strconv.Atoi(s)
-}
-
-func (s *Server) saveProfile(w http.ResponseWriter, r *http.Request) {
-	name := strings.TrimSpace(r.FormValue("name"))
-	if name == "" {
-		redirectErr(w, r, "/regeln", errors.New("Name fehlt"))
-		return
-	}
-	id := r.FormValue("id")
-	if id == "" {
-		id = slugify(name)
-		if _, err := s.store.Profile(id); err == nil {
-			redirectErr(w, r, "/regeln", fmt.Errorf("Profil %q gibt es schon", name))
-			return
-		}
-	}
-	p := store.Profile{ID: id, Name: name}
-	var err error
-	if p.Rules, err = parseRuleSet(r); err != nil {
-		redirectErr(w, r, "/regeln", err)
-		return
-	}
-	if err := s.store.SaveProfile(p); err != nil {
-		redirectErr(w, r, "/regeln", err)
-		return
-	}
-	_ = s.store.AddEvent(store.Event{TS: s.engine.Now(), ProfileID: p.ID, Kind: "config", Message: "Regeln für " + p.Name + " gespeichert"})
-	s.applyNow(r)
-	redirect(w, r, "/regeln", "Regeln für "+p.Name+" gespeichert")
-}
-
-func (s *Server) deleteProfile(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	if err := s.store.DeleteProfile(id); err != nil {
-		redirectErr(w, r, "/regeln", err)
-		return
-	}
-	redirect(w, r, "/regeln", "Profil gelöscht")
+	return plans
 }
 
 // slugify turns a display name into a URL friendly id.
@@ -395,7 +358,9 @@ func (s *Server) statsAPI(w http.ResponseWriter, r *http.Request) {
 	days := min(max(atoiDefault(r.URL.Query().Get("days"), 14), 1), 366)
 	limit := 0
 	if p, err := s.store.Profile(profileID); err == nil {
-		limit = p.Rules.DailyMinutes
+		if plan, err := s.store.Plan(p.PlanID); err == nil {
+			limit = max(plan.Day(now.Weekday()).Limit, 0)
+		}
 	}
 	from := rules.StartOfDay(now).AddDate(0, 0, -(days - 1))
 	all, err := s.store.NintendoPlayBetween(from.Format("2006-01-02"), now.Format("2006-01-02"))
@@ -462,7 +427,7 @@ func (s *Server) kidPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	consoles, _ := s.store.NintendoDevices()
-	s.render(w, r, "kind", v.Profile.Name, kidData{View: v, Base: base, Window: kidWindow(v.Profile, s.engine.Now()), Linked: len(consoles) > 0})
+	s.render(w, r, "kind", v.Profile.Name, kidData{View: v, Base: base, Window: kidWindow(v.Plan, s.engine.Now()), Linked: len(consoles) > 0})
 }
 
 // kidStatsPage shows a kid its own play time and games. It lives below the
@@ -475,7 +440,7 @@ func (s *Server) kidStatsPage(w http.ResponseWriter, r *http.Request) {
 	}
 	s.render(w, r, "kind", v.Profile.Name, kidData{
 		View: v, Base: base, StatsPage: true, Ranges: kidRanges,
-		Stats: s.kidStats(v.Profile, r.URL.Query().Get("zeitraum"), s.engine.Now(), base),
+		Stats: s.kidStats(v.Profile, v.Plan, r.URL.Query().Get("zeitraum"), s.engine.Now(), base),
 	})
 }
 

@@ -100,8 +100,10 @@ func Evaluate(l Limits, u Usage, o Overrides, now time.Time) Status {
 	return st
 }
 
-// formatUntil renders t relative to now: only the clock for today, otherwise
-// prefixed with the weekday.
+// FormatUntil renders t relative to now: only the clock for today, otherwise
+// prefixed with the weekday, or the date when it is more than a week ahead.
+func FormatUntil(t, now time.Time) string { return formatUntil(t, now) }
+
 func formatUntil(t, now time.Time) string {
 	clock := t.Format("15:04")
 	y1, m1, d1 := t.Date()

@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
@@ -94,9 +96,10 @@ func TestPagesRender(t *testing.T) {
 	e.nintendo()
 	for path, want := range map[string]string{
 		"/":                              "Mehr Zeit für heute",
-		"/konsolen":                      "Ist jetzt bei Mia",
+		"/konsolen":                      "Plan <strong>Schule Max</strong>",
+		"/kinder":                        "Neues Kind",
+		"/plaene":                        "Neuer Plan",
 		"/verlauf":                       "Spielzeit pro Tag",
-		"/regeln":                        "Neues Profil",
 		"/protokoll":                     "Protokoll",
 		"/protokoll?art=zeit":            "Zeit um",
 		"/einstellungen":                 "Zugang ohne Passwort",
@@ -188,11 +191,36 @@ func TestWrongPasswordAndForgedCookie(t *testing.T) {
 	}
 }
 
-func TestActions(t *testing.T) {
-	e := newEnv(t, "")
+// newNintendoEnv is newEnv with a fake Nintendo integration.
+func newNintendoEnv(t *testing.T) (*env, *fakeNintendo) {
+	t.Helper()
+	st, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	if err := demo.Seed(st); err != nil {
+		t.Fatal(err)
+	}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	eng := engine.New(st, nil, engine.Options{Location: berlin}, log)
+	fn := &fakeNintendo{st: st}
+	h, err := New(st, eng, Options{Nintendo: fn}, log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	jar, _ := cookiejar.New(nil)
+	e := &env{t: t, store: st, srv: srv, client: &http.Client{Jar: jar}}
 	e.nintendo()
+	return e, fn
+}
+
+func TestActions(t *testing.T) {
+	e, fn := newNintendoEnv(t)
 	e.client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	resp, err := e.client.PostForm(e.srv.URL+"/aktion", url.Values{"action": {"release"}, "profile": {"max"}, "device": {"demo-switch-2"}, "minutes": {"30"}, "back": {"/konsolen#demo-switch-2"}})
+	resp, err := e.client.PostForm(e.srv.URL+"/aktion", url.Values{"action": {"bonus"}, "profile": {"max"}, "minutes": {"15"}, "back": {"/konsolen#demo-switch-2"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,25 +239,12 @@ func TestActions(t *testing.T) {
 		}
 	}
 	e.client.CheckRedirect = nil
-
-	for _, form := range []url.Values{
-		{"action": {"bonus"}, "profile": {"max"}, "minutes": {"15"}},
-		{"action": {"bonus"}, "profile": {"mia"}, "minutes": {"5"}},
-		{"action": {"release"}, "profile": {"mia"}, "device": {"demo-switch-1"}, "minutes": {"0"}},
-	} {
-		code, body := e.post("/aktion", form)
-		if code != http.StatusOK || strings.Contains(body, `class="banner err"`) {
-			t.Fatalf("action %v failed: %d", form, code)
-		}
+	if strings.Join(fn.extra, ",") != "max15" {
+		t.Fatalf("extra time on the switch: %v", fn.extra)
 	}
-	ovs, _ := e.store.ActiveOverrides(time.Now(), berlin)
-	if len(ovs) != 4 {
-		t.Fatalf("expected 4 overrides, got %d", len(ovs))
-	}
-	for _, o := range ovs {
-		if o.Kind == store.KindRelease && (o.DeviceID == "" || !o.Until.After(time.Now())) {
-			t.Fatalf("bad release: %+v", o)
-		}
+	// Refused by Nintendo: counted in Zockerzeit, reported.
+	if _, body := e.post("/aktion", url.Values{"action": {"bonus"}, "profile": {"mia"}, "minutes": {"30"}}); !strings.Contains(body, "aber nicht an der Switch") {
+		t.Fatal("refused extra time not reported")
 	}
 
 	var status struct {
@@ -240,17 +255,15 @@ func TestActions(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, p := range status.Profiles {
-		if p.Profile.ID == "max" && (p.Status.LimitToday != 105 || len(p.Consoles) != 2) {
+		if p.Profile.ID == "max" && (p.Status.LimitToday != 90+15 && p.Status.LimitToday != 120+15 || len(p.Consoles) != 1 || p.Plan.ID != "schule-max") {
 			t.Fatalf("max: %+v", p)
 		}
 	}
-	if _, body := e.get("/"); !strings.Contains(body, "gerade bei Mia") || !strings.Contains(body, "geliehen bis") {
-		t.Fatal("lent consoles missing on the dashboard")
-	}
-	if _, body := e.get("/konsolen"); !strings.Contains(body, "Gerade bei <strong>Max</strong>") || !strings.Contains(body, "Zurück an Mia") {
-		t.Fatal("lent console missing on the consoles page")
-	}
 
+	ovs, _ := e.store.ActiveOverrides(time.Now(), berlin)
+	if len(ovs) != 2 {
+		t.Fatalf("expected 2 overrides, got %d", len(ovs))
+	}
 	code, _ := e.post("/aktion/"+strconv.FormatInt(ovs[0].ID, 10)+"/beenden", nil)
 	if code != http.StatusOK {
 		t.Fatalf("end override: %d", code)
@@ -261,12 +274,9 @@ func TestActions(t *testing.T) {
 	if _, body := e.post("/aktion/abc/beenden", nil); !strings.Contains(body, "banner err") {
 		t.Fatal("invalid id should report an error")
 	}
-
 	for _, bad := range []url.Values{
 		{"action": {"explode"}},
 		{"action": {"bonus"}, "profile": {"max"}, "minutes": {"0"}},
-		{"action": {"release"}, "profile": {"mia"}, "minutes": {"10"}},
-		{"action": {"release"}, "profile": {"niemand"}, "device": {"demo-switch-1"}, "minutes": {"10"}},
 		{"action": {"bonus"}, "minutes": {"10"}},
 	} {
 		if _, body := e.post("/aktion", bad); !strings.Contains(body, "banner err") {
@@ -275,34 +285,135 @@ func TestActions(t *testing.T) {
 	}
 }
 
-func TestProfilesAndConsoles(t *testing.T) {
+func TestPlanSwitch(t *testing.T) {
+	e, fn := newNintendoEnv(t)
+	now := time.Now().In(berlin)
+	if _, body := e.post("/aktion", url.Values{"action": {"sperren"}, "profile": {"max"}}); !strings.Contains(body, "Max: Gesperrt bis") {
+		t.Fatal("lock failed")
+	}
+	if fn.applied == 0 {
+		t.Fatal("the plan was not written to the switch")
+	}
+	ovs, _ := e.store.ActiveOverrides(now, berlin)
+	if len(ovs) != 1 || ovs[0].PlanID != store.PlanLocked || !ovs[0].Until.After(now) || ovs[0].Until.After(now.AddDate(0, 0, 2)) {
+		t.Fatalf("overrides = %+v", ovs)
+	}
+	_, body := e.get("/")
+	if !strings.Contains(body, "Plan <strong>Gesperrt</strong> bis") || !strings.Contains(body, "Zurück zum Standardplan") {
+		t.Fatal("locked plan missing on the dashboard")
+	}
+	// Frei replaces it, for all kids, including a date.
+	date := now.AddDate(0, 0, 3).Format("2006-01-02")
+	if _, body := e.post("/aktion", url.Values{"action": {"plan"}, "plan": {store.PlanFree}, "profile": {"alle"}, "dauer": {"datum"}, "bis": {date}}); !strings.Contains(body, "Max und Mia: Frei bis") {
+		t.Fatal("holiday for all kids failed")
+	}
+	ovs, _ = e.store.ActiveOverrides(now, berlin)
+	if len(ovs) != 2 || ovs[0].PlanID != store.PlanFree || !ovs[0].Until.After(now.AddDate(0, 0, 3)) {
+		t.Fatalf("overrides = %+v", ovs)
+	}
+	if _, body := e.get("/kind/max"); !strings.Contains(body, `<p class="kid-big">Frei</p>`) {
+		t.Fatal("free state missing in the kid app")
+	}
+	// For good: the new standard plan.
+	if _, body := e.post("/aktion", url.Values{"action": {"plan"}, "plan": {"ferien"}, "profile": {"mia"}, "dauer": {"dauerhaft"}}); !strings.Contains(body, "ist jetzt der Standardplan") {
+		t.Fatal("permanent switch failed")
+	}
+	if p, _ := e.store.Profile("mia"); p.PlanID != "ferien" {
+		t.Fatalf("standard plan = %s", p.PlanID)
+	}
+	for _, bad := range []url.Values{
+		{"action": {"plan"}, "plan": {"ferien"}, "profile": {"niemand"}, "dauer": {"morgen"}},
+		{"action": {"plan"}, "plan": {"nope"}, "profile": {"max"}, "dauer": {"morgen"}},
+		{"action": {"plan"}, "plan": {"ferien"}, "profile": {"max"}},
+		{"action": {"plan"}, "plan": {store.PlanLocked}, "profile": {"max"}, "dauer": {"dauerhaft"}},
+		{"action": {"plan"}, "plan": {"ferien"}, "profile": {"max"}, "dauer": {"datum"}, "bis": {"2000-01-01"}},
+		{"action": {"plan"}, "plan": {"ferien"}, "profile": {"max"}, "dauer": {"datum"}, "bis": {"kaputt"}},
+	} {
+		if _, body := e.post("/aktion", bad); !strings.Contains(body, "banner err") {
+			t.Errorf("expected error for %v", bad)
+		}
+	}
+
+	// The morning is the start of the time window, after midnight today's.
+	plan, _ := e.store.Plan("schule-max")
+	monday := time.Date(2026, 11, 23, 0, 0, 0, 0, berlin)
+	if got := nextMorning(plan, monday.Add(time.Hour)); !got.Equal(monday.Add(9 * time.Hour)) {
+		t.Fatalf("after midnight = %v", got)
+	}
+	if got := nextMorning(plan, monday.Add(13*time.Hour)); !got.Equal(monday.AddDate(0, 0, 1).Add(9 * time.Hour)) {
+		t.Fatalf("afternoon = %v", got)
+	}
+	free, _ := e.store.Plan(store.PlanFree)
+	if got := morningOf(free, monday); !got.Equal(monday) {
+		t.Fatalf("whole day = %v", got)
+	}
+}
+
+func TestKidsPlansConsoles(t *testing.T) {
 	e := newEnv(t, "")
-	form := url.Values{
-		"name": {"Großer Bruder"}, "daily": {"60"},
-		"win_1": {"15:00-17:00"}, "win_6": {"10:00-12:00, 14:00-18:00"},
+	form := url.Values{"name": {"Wochenende Oma"}}
+	for _, d := range []string{"0", "1", "2", "3", "4", "5", "6"} {
+		form.Set("from_"+d, "08:00")
+		form.Set("to_"+d, "21:00")
+		form.Set("limit_"+d, "120")
 	}
-	if _, body := e.post("/regeln", form); !strings.Contains(body, "gespeichert") {
-		t.Fatal("saving profile failed")
+	form.Set("from_0", "")
+	form.Set("to_0", "")
+	form.Set("limit_0", "")
+	form.Set("to_6", "24:00")
+	form.Set("limit_3", "0")
+	if _, body := e.post("/plaene/plan", form); !strings.Contains(body, "Plan Wochenende Oma gespeichert") {
+		t.Fatal("saving the plan failed")
 	}
-	p, err := e.store.Profile("grosser-bruder")
-	if err != nil {
-		t.Fatal(err)
+	p, err := e.store.Plan("wochenende-oma")
+	if err != nil || p.Day(time.Monday).From != 8*60 || p.Day(time.Sunday).Limit != -1 || p.Day(time.Saturday).To != 24*60 || p.Day(time.Wednesday).Limit != 0 {
+		t.Fatalf("plan = %+v %v", p, err)
 	}
-	if p.Rules.DailyMinutes != 60 || len(p.Rules.Schedule[time.Saturday]) != 2 || len(p.Rules.Schedule[time.Sunday]) != 0 {
-		t.Fatalf("unexpected profile: %+v", p)
+	if _, body := e.post("/plaene/plan", form); !strings.Contains(body, "gibt es schon") {
+		t.Fatal("duplicate plan accepted")
 	}
-	if _, body := e.post("/regeln", form); !strings.Contains(body, "gibt es schon") {
-		t.Fatal("duplicate profile accepted")
+	for name, change := range map[string][2]string{
+		"start too late": {"from_1", "10:00"},
+		"end too early":  {"to_1", "15:00"},
+		"end too late":   {"to_1", "23:30"},
+		"no end":         {"to_1", ""},
+		"bad limit":      {"limit_1", "400"},
+		"bad clock":      {"from_1", "acht"},
+	} {
+		bad := url.Values{}
+		maps.Copy(bad, form)
+		bad.Set("name", "X "+name)
+		bad.Set(change[0], change[1])
+		if _, body := e.post("/plaene/plan", bad); !strings.Contains(body, "banner err") {
+			t.Errorf("%s accepted", name)
+		}
+	}
+	if _, body := e.post("/plaene/plan", url.Values{"name": {""}}); !strings.Contains(body, "Namen") {
+		t.Fatal("plan without name accepted")
+	}
+	if _, body := e.get("/plaene"); !strings.Contains(body, "Standardplan für Max") || !strings.Contains(body, `value="24:00"`) {
+		t.Fatal("plans page")
+	}
+
+	// Kids get a standard plan.
+	if _, body := e.post("/kinder", url.Values{"name": {"Großer Bruder"}, "plan": {"wochenende-oma"}}); !strings.Contains(body, "Großer Bruder gespeichert") {
+		t.Fatal("saving the kid failed")
+	}
+	if k, err := e.store.Profile("grosser-bruder"); err != nil || k.PlanID != "wochenende-oma" {
+		t.Fatalf("kid = %+v %v", k, err)
 	}
 	for _, bad := range []url.Values{
 		{"name": {""}},
-		{"name": {"X"}, "win_1": {"18:00-15:00"}},
-		{"name": {"Y"}, "daily": {"-5"}},
-		{"name": {"Z"}, "daily": {"viel"}},
+		{"name": {"Großer Bruder"}, "plan": {"wochenende-oma"}},
+		{"name": {"Y"}, "plan": {store.PlanFree}},
+		{"name": {"Z"}, "plan": {"nope"}},
 	} {
-		if _, body := e.post("/regeln", bad); !strings.Contains(body, "banner err") {
+		if _, body := e.post("/kinder", bad); !strings.Contains(body, "banner err") {
 			t.Errorf("expected error for %v", bad)
 		}
+	}
+	if _, body := e.post("/plaene/plan/wochenende-oma/loeschen", nil); !strings.Contains(body, "noch Standardplan") {
+		t.Fatal("plan in use deleted")
 	}
 
 	// Handing a console to another kid moves its play time, past included.
@@ -315,6 +426,9 @@ func TestProfilesAndConsoles(t *testing.T) {
 	after, _ := e.store.NintendoMinutes("max", "2000-01-01", "2100-01-01")
 	if moved == 0 || after >= before {
 		t.Fatalf("play time not moved: before=%d after=%d moved=%d", before, after, moved)
+	}
+	if _, body := e.get("/kinder"); !strings.Contains(body, "Switch Oma") || !strings.Contains(body, "Spiele der letzten 30 Tage") {
+		t.Fatal("kids page misses consoles or games")
 	}
 	if _, body := e.post("/konsolen/demo-switch-1", url.Values{"name": {"Switch Oma"}, "profile": {"grosser-bruder"}}); !strings.Contains(body, "Switch Oma gespeichert") {
 		t.Fatal("renaming failed")
@@ -334,11 +448,17 @@ func TestProfilesAndConsoles(t *testing.T) {
 		}
 	}
 
-	if _, body := e.post("/regeln/mia/loeschen", nil); !strings.Contains(body, "gelöscht") {
-		t.Fatal("deleting profile failed")
+	if _, body := e.post("/kinder/grosser-bruder/loeschen", nil); !strings.Contains(body, "Kind gelöscht") {
+		t.Fatal("deleting the kid failed")
 	}
-	if c, _ := e.store.NintendoDevice("demo-switch-2"); c.ProfileID != "" {
-		t.Fatalf("console of a deleted kid still owned: %+v", c)
+	if _, body := e.post("/plaene/plan/wochenende-oma/loeschen", nil); !strings.Contains(body, "Plan gelöscht") {
+		t.Fatal("deleting the plan failed")
+	}
+	if _, body := e.post("/plaene/plan/wochenende-oma/loeschen", nil); !strings.Contains(body, "nicht gefunden") {
+		t.Fatal("deleting twice")
+	}
+	if code, _ := e.get("/regeln"); code != http.StatusOK {
+		t.Fatalf("old rules link: %d", code)
 	}
 }
 
@@ -353,7 +473,7 @@ func TestStatsAndKidAPI(t *testing.T) {
 	if err := json.Unmarshal([]byte(body), &st); err != nil {
 		t.Fatal(err)
 	}
-	if st.Limit != 90 || len(st.Daily.Labels) != 7 || len(st.Consoles) == 0 || st.Consoles[0].Name != "Switch Kinderzimmer" {
+	if (st.Limit != 90 && st.Limit != 120) || len(st.Daily.Labels) != 7 || len(st.Consoles) == 0 || st.Consoles[0].Name != "Switch Kinderzimmer" {
 		t.Fatalf("unexpected stats: %+v", st)
 	}
 	if code, _ := e.get("/api/stats?profile=niemand&days=abc"); code != http.StatusOK {
@@ -361,7 +481,7 @@ func TestStatsAndKidAPI(t *testing.T) {
 	}
 
 	code, body = e.get("/api/kind/max")
-	if code != http.StatusOK || !strings.Contains(body, `"name":"Max"`) || !strings.Contains(body, `"limit":90`) {
+	if code != http.StatusOK || !strings.Contains(body, `"name":"Max"`) || !strings.Contains(body, `"limit":`) {
 		t.Fatalf("kid api: %d %s", code, body)
 	}
 	if code, _ := e.get("/api/kind/niemand"); code != http.StatusNotFound {
@@ -410,7 +530,9 @@ func TestEnergyCells(t *testing.T) {
 type fakeNintendo struct {
 	st      *store.Store
 	synced  int
+	applied int
 	removed int64
+	extra   []string
 }
 
 func (f *fakeNintendo) LoginURL() (string, string, error) {
@@ -438,6 +560,16 @@ func (f *fakeNintendo) Remove(id int64) error {
 }
 
 func (f *fakeNintendo) SyncAll(context.Context) { f.synced++ }
+
+func (f *fakeNintendo) Apply(context.Context, bool) { f.applied++ }
+
+func (f *fakeNintendo) AddExtraTime(_ context.Context, profileID string, minutes int) error {
+	if minutes == 30 {
+		return errors.New("refused")
+	}
+	f.extra = append(f.extra, fmt.Sprint(profileID, minutes))
+	return nil
+}
 
 func TestNintendoPages(t *testing.T) {
 	st, err := store.Open(":memory:")
@@ -803,12 +935,18 @@ func TestKidStats(t *testing.T) {
 
 func TestKidWindow(t *testing.T) {
 	now := time.Date(2026, 11, 23, 12, 0, 0, 0, berlin) // a Monday
-	p := store.Profile{Rules: store.RuleSet{Schedule: rules.Schedule{time.Monday: {{Start: 540, End: 720}, {Start: 900, End: 1140}}}}}
-	if got := kidWindow(p, now); got != "09:00 bis 12:00, 15:00 bis 19:00" {
+	p := store.Plan{Days: map[time.Weekday]store.PlanDay{
+		time.Monday:  {From: 9 * 60, To: 24 * 60, Limit: 60},
+		time.Tuesday: {Limit: -1},
+	}}
+	if got := kidWindow(p, now); got != "09:00 bis 24:00 Uhr" {
 		t.Fatalf("window %q", got)
 	}
 	if got := kidWindow(p, now.AddDate(0, 0, 1)); got != "" {
-		t.Fatalf("no window %q", got)
+		t.Fatalf("whole day %q", got)
+	}
+	if got := kidWindow(p, now.AddDate(0, 0, 2)); got != "keine Zockzeit" {
+		t.Fatalf("no play %q", got)
 	}
 }
 
@@ -948,54 +1086,5 @@ func TestLoginThrottle(t *testing.T) {
 	r.Header.Set("X-Forwarded-For", "1.2.3.4, 10.0.0.9")
 	if clientIP(r) != "10.0.0.9" {
 		t.Fatalf("client ip = %s", clientIP(r))
-	}
-}
-
-func TestFree(t *testing.T) {
-	e := newEnv(t, "")
-	e.nintendo()
-	now := time.Now().In(berlin)
-	if _, body := e.post("/aktion", url.Values{"action": {"free"}, "profile": {"max"}}); !strings.Contains(body, "Max: frei bis") {
-		t.Fatal("free until tomorrow failed")
-	}
-	ovs, _ := e.store.ActiveOverrides(now, berlin)
-	tomorrow := rules.StartOfDay(now).AddDate(0, 0, 1)
-	if len(ovs) != 1 || ovs[0].Kind != store.KindFree || !ovs[0].Until.After(now) || !ovs[0].Until.Before(tomorrow.AddDate(0, 0, 1)) {
-		t.Fatalf("overrides = %+v", ovs)
-	}
-	if _, body := e.get("/kind/max"); !strings.Contains(body, `<p class="kid-big">Frei</p>`) {
-		t.Fatal("free state missing in the kid app")
-	}
-	_, body := e.get("/")
-	if !strings.Contains(body, `<p class="time">Frei</p>`) || !strings.Contains(body, "keine Zeitfenster und Limits") {
-		t.Fatal("free state missing on the dashboard")
-	}
-	date := now.AddDate(0, 0, 3).Format("2006-01-02")
-	if _, body := e.post("/aktion", url.Values{"action": {"free"}, "profile": {"alle"}, "bis": {date}}); !strings.Contains(body, "Max und Mia: frei bis") {
-		t.Fatal("holiday for all kids failed")
-	}
-	ovs, _ = e.store.ActiveOverrides(now, berlin)
-	if len(ovs) != 3 || !ovs[2].Until.After(now.AddDate(0, 0, 3)) {
-		t.Fatalf("overrides = %+v", ovs)
-	}
-	for _, bad := range []url.Values{
-		{"action": {"free"}, "profile": {"niemand"}},
-		{"action": {"free"}, "profile": {"max"}, "bis": {"2000-01-01"}},
-		{"action": {"free"}, "profile": {"max"}, "bis": {"kaputt"}},
-		{"action": {"free"}, "profile": {"max"}, "bis": {now.AddDate(2, 0, 0).Format("2006-01-02")}},
-	} {
-		if _, body := e.post("/aktion", bad); !strings.Contains(body, "banner err") {
-			t.Errorf("expected error for %v", bad)
-		}
-	}
-
-	// The morning is the first window of the day after.
-	sched := rules.Schedule{time.Monday: {{Start: 15 * 60, End: 18 * 60}, {Start: 9 * 60, End: 12 * 60}}}
-	monday := time.Date(2026, 11, 23, 0, 0, 0, 0, berlin)
-	if got := morningOf(sched, monday.Add(13*time.Hour)); !got.Equal(monday.Add(9 * time.Hour)) {
-		t.Fatalf("morning = %v", got)
-	}
-	if got := morningOf(sched, monday.AddDate(0, 0, 1)); !got.Equal(monday.AddDate(0, 0, 1)) {
-		t.Fatalf("morning without window = %v", got)
 	}
 }

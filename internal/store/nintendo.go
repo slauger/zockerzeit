@@ -28,6 +28,11 @@ type NintendoDevice struct {
 	Name      string `json:"name"`
 	Model     string `json:"model"`
 	ProfileID string `json:"profileId"`
+	// Applied is the plan last written to the console (a fingerprint),
+	// ApplyError why the last write failed.
+	Applied    string    `json:"applied"`
+	AppliedAt  time.Time `json:"appliedAt"`
+	ApplyError string    `json:"applyError"`
 }
 
 // NintendoPlayer is a user on a console.
@@ -131,7 +136,7 @@ func (s *Store) SetNintendoDevice(deviceID, name, profileID string) error {
 
 // NintendoDevices returns all consoles.
 func (s *Store) NintendoDevices() ([]NintendoDevice, error) {
-	rows, err := s.db.Query(`SELECT device_id, account, label, name, model, profile_id FROM nintendo_devices ORDER BY name COLLATE NOCASE`)
+	rows, err := s.db.Query(`SELECT device_id, account, label, name, model, profile_id, applied, applied_at, apply_error FROM nintendo_devices ORDER BY name COLLATE NOCASE`)
 	if err != nil {
 		return nil, err
 	}
@@ -139,12 +144,29 @@ func (s *Store) NintendoDevices() ([]NintendoDevice, error) {
 	var out []NintendoDevice
 	for rows.Next() {
 		var d NintendoDevice
-		if err := rows.Scan(&d.DeviceID, &d.Account, &d.Label, &d.Name, &d.Model, &d.ProfileID); err != nil {
+		var at int64
+		if err := rows.Scan(&d.DeviceID, &d.Account, &d.Label, &d.Name, &d.Model, &d.ProfileID, &d.Applied, &at, &d.ApplyError); err != nil {
 			return nil, err
+		}
+		if at > 0 {
+			d.AppliedAt = time.Unix(at, 0)
 		}
 		out = append(out, d)
 	}
 	return out, rows.Err()
+}
+
+// SetNintendoApplied records a write of the plan to a console: the
+// fingerprint of what was written, or the error of a failed write.
+func (s *Store) SetNintendoApplied(deviceID, applied string, at time.Time, applyErr string) error {
+	var res sql.Result
+	var err error
+	if applyErr != "" {
+		res, err = s.db.Exec(`UPDATE nintendo_devices SET apply_error = ? WHERE device_id = ?`, applyErr, deviceID)
+	} else {
+		res, err = s.db.Exec(`UPDATE nintendo_devices SET applied = ?, applied_at = ?, apply_error = '' WHERE device_id = ?`, applied, at.Unix(), deviceID)
+	}
+	return affected(res, err)
 }
 
 // NintendoDevice returns a single console.

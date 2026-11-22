@@ -1,5 +1,6 @@
 {{define "content"}}
 {{with .Data}}
+{{$today := .At.Format "2006-01-02"}}
 <div class="page-head">
   <h1>{{germanDate .At}}</h1>
   <p class="muted">Stand {{clock .At}} Uhr</p>
@@ -8,7 +9,7 @@
 {{if not .Views}}
 <section class="empty">
   <h2>Noch niemand angelegt</h2>
-  <p>Leg unter <a href="/regeln">Regeln</a> ein Profil pro Kind an, verbinde unter <a href="/einstellungen/nintendo">Einstellungen → Nintendo</a> den Account aus der Jugendschutz-App und ordne unter <a href="/konsolen">Konsolen</a> jede Switch einem Kind zu.</p>
+  <p>Leg unter <a href="/plaene">Pläne</a> einen Plan und ein Kind an, verbinde unter <a href="/einstellungen/nintendo">Einstellungen → Nintendo</a> den Account aus der Jugendschutz-App und ordne unter <a href="/konsolen">Konsolen</a> jede Switch einem Kind zu.</p>
 </section>
 {{end}}
 
@@ -16,13 +17,12 @@
 <div class="banner warn">{{range $i, $c := .}}{{if $i}}, {{end}}<strong>{{$c.Name}}</strong>{{end}} {{if eq (len .) 1}}gehört{{else}}gehören{{end}} noch niemandem, die Spielzeit darauf zählt für kein Kind. <a href="/konsolen">Zuordnen</a></div>
 {{end}}
 
-{{if .Views}}
+{{if gt (len .Views) 1}}
 <form method="post" action="/aktion" class="inline-form holiday">
-  <input type="hidden" name="action" value="free">
+  <input type="hidden" name="action" value="plan">
   <input type="hidden" name="profile" value="alle">
-  <span class="holiday-label">Urlaub oder Ferien: alle Kinder frei bis einschließlich</span>
-  <input type="date" name="bis" min="{{.At.Format "2006-01-02"}}" value="{{.At.Format "2006-01-02"}}" aria-label="Datum" required>
-  <button>Frei geben</button>
+  <span class="holiday-label">Alle Kinder</span>
+  {{template "planswitch" (dict "Plans" .Plans "Today" $today "Current" "")}}
 </form>
 {{end}}
 
@@ -33,17 +33,20 @@
 <section class="player {{if $st.Allowed}}is-allowed{{else}}is-paused{{end}}" style="--player: var(--series-{{if eq $i 0}}1{{else}}2{{end}})">
   <header class="player-head">
     <span class="avatar" aria-hidden="true">{{initial $p.Name}}</span>
-    <h2>{{$p.Name}}</h2>
+    <div>
+      <h2>{{$p.Name}}</h2>
+      <p class="plan-line">Plan <strong>{{.Plan.Name}}</strong>{{if not .PlanUntil.IsZero}} bis {{datetime .PlanUntil}} Uhr{{end}}</p>
+    </div>
     {{if .Playing}}<span class="playing"><span class="dot active" aria-hidden="true"></span>spielt gerade</span>{{end}}
   </header>
 
   <div class="meter-block {{if $st.Allowed}}is-allowed{{else}}is-paused{{end}}">
     {{if $st.Free}}
       <p class="time">Frei</p>
-      <p class="time-caption">{{$st.Reason}} Uhr, keine Zeitfenster und Limits</p>
+      <p class="time-caption">{{$st.Reason}}, keine Zeitfenster und Limits</p>
     {{else if $st.Allowed}}
       <p class="time">{{remaining $st}}</p>
-      <p class="time-caption">{{if $st.LimitToday}}noch spielbar{{else}}frei, kein Tageslimit{{end}}</p>
+      <p class="time-caption">{{if $st.LimitToday}}noch spielbar{{else}}kein Tageslimit{{end}}</p>
     {{else}}
       <p class="time">Pause</p>
       <p class="time-caption">{{$st.Reason}}</p>
@@ -55,9 +58,8 @@
     {{end}}{{end}}
     <dl class="budget">
       <div><dt>Heute</dt><dd>{{dur $st.UsedToday}}{{if $st.LimitToday}} von {{$st.LimitToday}} Min{{end}}</dd></div>
-      <div><dt>Woche</dt><dd>{{dur $st.UsedWeek}}</dd></div>
+      <div><dt>Diese Woche</dt><dd>{{dur $st.UsedWeek}}</dd></div>
     </dl>
-    {{if and $st.Allowed (not $st.Free)}}<p class="reason">{{$st.Reason}}</p>{{end}}
   </div>
 
   {{with index $.Data.Nintendo $p.ID}}{{if .Minutes}}
@@ -67,10 +69,7 @@
   {{if .Consoles}}
   <ul class="chips">
     {{range .Consoles}}
-    <li><a href="/konsolen#{{.DeviceID}}" class="chip">
-      <span class="chip-name">{{.Name}}</span>
-      <span class="chip-state">{{if ne .HeldBy $p.ID}}gerade bei {{index $.Data.Names .HeldBy}}{{else if ne .ProfileID $p.ID}}geliehen bis {{clock .LentUntil}} Uhr{{else}}{{.Model}}{{end}}</span>
-    </a></li>
+    <li><a href="/konsolen#{{.DeviceID}}" class="chip"><span class="chip-name">{{.Name}}</span><span class="chip-state">{{.Model}}</span></a></li>
     {{end}}
   </ul>
   {{end}}
@@ -79,8 +78,8 @@
   <ul class="overrides">
     {{range .Overrides}}
     <li>
-      <span>{{.Note}}{{if eq .Kind "release"}}, bis {{clock .Until}} Uhr{{end}}</span>
-      <form method="post" action="/aktion/{{.ID}}/beenden"><button class="link">Beenden</button></form>
+      <span>{{.Note}}</span>
+      <form method="post" action="/aktion/{{.ID}}/beenden"><button class="link">{{if eq .Kind "plan"}}Zurück zum Standardplan{{else}}Beenden{{end}}</button></form>
     </li>
     {{end}}
   </ul>
@@ -93,14 +92,16 @@
         {{range $m := (list 5 15 30)}}
         <form method="post" action="/aktion"><input type="hidden" name="action" value="bonus"><input type="hidden" name="profile" value="{{$p.ID}}"><input type="hidden" name="minutes" value="{{$m}}"><button>+{{$m}} Min</button></form>
         {{end}}
+        <form method="post" action="/aktion"><input type="hidden" name="action" value="sperren"><input type="hidden" name="profile" value="{{$p.ID}}"><button class="danger strong" onclick="return confirm('{{$p.Name}} bis morgen früh sperren?')">Jetzt sperren</button></form>
       </div>
     </div>
     <div class="control-group">
-      <h3>Frei, ohne Zeitfenster und Limits</h3>
-      <div class="buttons">
-        <form method="post" action="/aktion"><input type="hidden" name="action" value="free"><input type="hidden" name="profile" value="{{$p.ID}}"><button>Bis morgen früh</button></form>
-        <form method="post" action="/aktion" class="free-until"><input type="hidden" name="action" value="free"><input type="hidden" name="profile" value="{{$p.ID}}"><input type="date" name="bis" min="{{$.Data.At.Format "2006-01-02"}}" value="{{$.Data.At.Format "2006-01-02"}}" aria-label="Frei bis einschließlich" required><button>Bis einschließlich</button></form>
-      </div>
+      <h3>Plan umschalten</h3>
+      <form method="post" action="/aktion" class="inline-form">
+        <input type="hidden" name="action" value="plan">
+        <input type="hidden" name="profile" value="{{$p.ID}}">
+        {{template "planswitch" (dict "Plans" $.Data.Plans "Today" $today "Current" .Plan.ID)}}
+      </form>
     </div>
   </div>
   <a class="kidlink" href="/kind/{{$p.ID}}">Kinderansicht öffnen</a>
@@ -109,6 +110,17 @@
 </div>
 
 {{end}}
+{{end}}
+
+{{define "planswitch"}}
+<select name="plan" aria-label="Plan">{{$cur := .Current}}{{range .Plans}}<option value="{{.ID}}" {{if eq .ID $cur}}disabled{{end}}>{{.Name}}</option>{{end}}</select>
+<select name="dauer" aria-label="Wie lange" onchange="this.form.querySelector('[name=bis]').hidden = this.value !== 'datum'">
+  <option value="morgen">bis morgen früh</option>
+  <option value="datum">bis einschließlich</option>
+  <option value="dauerhaft">dauerhaft</option>
+</select>
+<input type="date" name="bis" min="{{.Today}}" value="{{.Today}}" aria-label="Datum" hidden>
+<button>Umschalten</button>
 {{end}}
 
 {{define "scripts"}}<script>setTimeout(() => location.replace(location.pathname), 60000);</script>{{end}}

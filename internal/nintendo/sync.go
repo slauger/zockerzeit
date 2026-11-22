@@ -30,6 +30,9 @@ type Syncer struct {
 
 	fresh []fresh // play time that grew during the running sync
 
+	applyMu sync.Mutex
+	lastTry map[string]time.Time // last write attempt per console
+
 	mu       sync.Mutex
 	accounts map[int64]*Account
 }
@@ -55,22 +58,28 @@ func NewSyncer(st *store.Store, client *Client, box *secret.Box, interval time.D
 	if interval <= 0 {
 		interval = 5 * time.Minute
 	}
-	return &Syncer{store: st, client: client, box: box, log: log, interval: interval, now: time.Now, accounts: map[int64]*Account{}, Location: time.Local}
+	return &Syncer{store: st, client: client, box: box, log: log, interval: interval, now: time.Now, accounts: map[int64]*Account{}, lastTry: map[string]time.Time{}, Location: time.Local}
 }
 
 // LoginURL starts the connection of an account.
 func (s *Syncer) LoginURL() (string, string, error) { return s.client.LoginURL() }
 
-// Run syncs until ctx is cancelled.
+// Run syncs until ctx is cancelled. In between, every minute, plans that
+// changed (a switch started or ended) are written to the consoles.
 func (s *Syncer) Run(ctx context.Context) {
-	t := time.NewTicker(s.interval)
-	defer t.Stop()
+	sync := time.NewTicker(s.interval)
+	defer sync.Stop()
+	minute := time.NewTicker(time.Minute)
+	defer minute.Stop()
+	s.SyncAll(ctx)
 	for {
-		s.SyncAll(ctx)
 		select {
 		case <-ctx.Done():
 			return
-		case <-t.C:
+		case <-sync.C:
+			s.SyncAll(ctx)
+		case <-minute.C:
+			s.Apply(ctx, false)
 		}
 	}
 }
@@ -138,14 +147,14 @@ func (s *Syncer) SyncAll(ctx context.Context) {
 		s.log.Error("attributing Nintendo play time failed", "err", err)
 	}
 	s.announce(ctx, now)
+	s.Apply(ctx, true)
 	s.cacheImages(ctx)
 }
 
-// Attribute assigns play time that arrived since the last sync to a kid:
-// today to whoever has the console right now ("ist jetzt bei"), otherwise
-// to the kid the console belongs to. Time on consoles without an owner
-// stays open until one is set.
-func Attribute(st *store.Store, now time.Time, loc *time.Location) error {
+// Attribute assigns play time that arrived since the last sync to the kid
+// the console belongs to. Time on consoles without an owner stays open
+// until one is set.
+func Attribute(st *store.Store, now time.Time, _ *time.Location) error {
 	open, err := st.NintendoUnattributed()
 	if err != nil || len(open) == 0 {
 		return err
@@ -154,31 +163,15 @@ func Attribute(st *store.Store, now time.Time, loc *time.Location) error {
 	if err != nil {
 		return err
 	}
-	ovs, err := st.ActiveOverrides(now, loc)
-	if err != nil {
-		return err
-	}
 	owner := map[string]string{}
 	for _, c := range consoles {
 		owner[c.DeviceID] = c.ProfileID
 	}
-	borrowed := map[string]string{}
-	for _, o := range ovs {
-		if o.Kind == store.KindRelease && o.DeviceID != "" {
-			borrowed[o.DeviceID] = o.ProfileID
-		}
-	}
-	today := now.In(loc).Format("2006-01-02")
 	plays := make([]store.NintendoPlay, 0, len(open))
 	for _, u := range open {
-		profile := owner[u.DeviceID]
-		if b := borrowed[u.DeviceID]; b != "" && u.Date == today {
-			profile = b
+		if profile := owner[u.DeviceID]; profile != "" {
+			plays = append(plays, store.NintendoPlay{TS: now, Date: u.Date, DeviceID: u.DeviceID, PlayerID: u.PlayerID, ProfileID: profile, Minutes: u.Minutes})
 		}
-		if profile == "" {
-			continue
-		}
-		plays = append(plays, store.NintendoPlay{TS: now, Date: u.Date, DeviceID: u.DeviceID, PlayerID: u.PlayerID, ProfileID: profile, Minutes: u.Minutes})
 	}
 	return st.AddNintendoPlay(plays)
 }

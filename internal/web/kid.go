@@ -44,7 +44,7 @@ var monthNames = [...]string{"Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "
 // maxMonthBars caps the "alle" chart to the most recent months.
 const maxMonthBars = 12
 
-func (s *Server) kidStats(p store.Profile, rng string, now time.Time, base string) kidStats {
+func (s *Server) kidStats(p store.Profile, plan store.Plan, rng string, now time.Time, base string) kidStats {
 	st := kidStats{Range: rng}
 	today := rules.StartOfDay(now)
 	from := today
@@ -80,7 +80,7 @@ func (s *Server) kidStats(p store.Profile, rng string, now time.Time, base strin
 	switch st.Range {
 	case "7", "30":
 		st.PerDay = st.Minutes / days
-		st.Limit = p.Rules.DailyMinutes
+		st.Limit = max(plan.Day(now.Weekday()).Limit, 0)
 		for d := from; !d.After(today); d = d.AddDate(0, 0, 1) {
 			m := perDay[d.Format("2006-01-02")]
 			b := kidBar{
@@ -123,14 +123,17 @@ func (s *Server) kidStats(p store.Profile, rng string, now time.Time, base strin
 	return st
 }
 
-// kidWindow describes today's console time windows, "" when there are none.
-func kidWindow(p store.Profile, now time.Time) string {
-	ws := p.Rules.Schedule[now.Weekday()]
-	parts := make([]string, 0, len(ws))
-	for _, w := range ws {
-		parts = append(parts, rules.FormatClock(w.Start)+" bis "+rules.FormatClock(w.End))
+// kidWindow describes today's play time of a plan, "" when the whole day
+// is open.
+func kidWindow(plan store.Plan, now time.Time) string {
+	day := plan.Day(now.Weekday())
+	if day.Limit == 0 && !plan.BuiltIn() {
+		return "keine Zockzeit"
 	}
-	return strings.Join(parts, ", ")
+	if w, ok := day.Window(); ok {
+		return formatClock(w.Start) + " bis " + formatClock(w.End) + " Uhr"
+	}
+	return ""
 }
 
 // weekBarsUpTo is how much history "alle" shows per week instead of per month.

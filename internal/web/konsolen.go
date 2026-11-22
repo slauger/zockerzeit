@@ -6,21 +6,20 @@ import (
 	"strings"
 	"time"
 
-	"github.com/slauger/zockerzeit/internal/engine"
+	"github.com/slauger/zockerzeit/internal/nintendo"
 	"github.com/slauger/zockerzeit/internal/store"
 )
 
 // consoleView is one console on the consoles page.
 type consoleView struct {
-	engine.Console
-	Owner  string // name of the kid the console belongs to
-	HeldBy string // name of the kid that has it right now
+	store.NintendoDevice
+	Owner string // name of the kid the console belongs to
+	// Plan is the plan in force for the owner, Synced whether the console
+	// has it.
+	Plan   string
+	Synced bool
 	Today  int
 	Games  []string
-	// Lend is the active "ist jetzt bei" of the console, if any.
-	Lend *store.Override
-	// Others are the kids the console can be lent to.
-	Others []store.Profile
 }
 
 type consolesData struct {
@@ -37,21 +36,20 @@ func (s *Server) consolesPage(w http.ResponseWriter, r *http.Request) {
 	}
 	now := s.engine.Now()
 	profiles, _ := s.store.Profiles()
-	names := s.profileNames()
 	ovs, _ := s.store.ActiveOverrides(now, s.engine.Location())
 	usage, _ := s.store.NintendoUsageOn(now.Format("2006-01-02"))
 	titles, _ := s.store.NintendoTitles()
 	data := consolesData{Profiles: profiles, Nintendo: s.opts.Nintendo != nil}
 	for _, c := range consoles {
-		v := consoleView{Console: c, Owner: names[c.ProfileID], HeldBy: names[c.HeldBy]}
-		for _, o := range ovs {
-			if o.Kind == store.KindRelease && o.DeviceID == c.DeviceID {
-				v.Lend = &o
-			}
-		}
+		v := consoleView{NintendoDevice: c}
 		for _, p := range profiles {
-			if p.ID != c.HeldBy {
-				v.Others = append(v.Others, p)
+			if p.ID != c.ProfileID {
+				continue
+			}
+			v.Owner = p.Name
+			if plan, _, err := s.store.ActivePlan(p, ovs); err == nil {
+				v.Plan = plan.Name
+				v.Synced = c.Applied == nintendo.Fingerprint(plan)
 			}
 		}
 		perGame := map[string]int{}
@@ -81,7 +79,8 @@ func (s *Server) consolesPage(w http.ResponseWriter, r *http.Request) {
 }
 
 // saveConsole renames a console and sets its owner. A new owner gets the
-// play time of the console attributed again, including the past.
+// play time of the console attributed again, including the past, and the
+// console gets the owner's plan.
 func (s *Server) saveConsole(w http.ResponseWriter, r *http.Request) {
 	c, err := s.store.NintendoDevice(r.PathValue("id"))
 	if err != nil {
@@ -117,6 +116,6 @@ func (s *Server) saveConsole(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	_ = s.store.AddEvent(store.Event{TS: s.engine.Now(), ProfileID: owner, DeviceID: c.DeviceID, Kind: "config", Message: msg})
-	s.applyNow(r)
+	s.applyPlans(r)
 	redirect(w, r, "/konsolen", msg)
 }

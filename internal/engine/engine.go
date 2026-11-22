@@ -5,6 +5,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -28,23 +29,17 @@ type Options struct {
 	WarnMinutes []int
 }
 
-// Console is a Nintendo console with the kid that has it right now.
-type Console struct {
-	store.NintendoDevice
-	// HeldBy is the kid the console counts for right now: the one it is lent
-	// to, otherwise its owner.
-	HeldBy string `json:"heldBy"`
-	// LentUntil is set while the console is lent to another kid.
-	LentUntil time.Time `json:"lentUntil"`
-}
-
 // ProfileView combines a profile with its current status.
 type ProfileView struct {
-	Profile   store.Profile    `json:"profile"`
+	Profile store.Profile `json:"profile"`
+	// Plan is the plan in force; PlanUntil ends a switch to it, zero for the
+	// standard plan.
+	Plan      store.Plan       `json:"plan"`
+	PlanUntil time.Time        `json:"planUntil"`
 	Status    rules.Status     `json:"status"`
 	Overrides []store.Override `json:"overrides"`
-	// Consoles the kid owns or has borrowed.
-	Consoles []Console `json:"consoles"`
+	// Consoles the kid owns.
+	Consoles []store.NintendoDevice `json:"consoles"`
 	// Playing is true when Nintendo reported new play time within
 	// playingWindow.
 	Playing bool `json:"playing"`
@@ -162,7 +157,7 @@ func (e *Engine) Evaluate() ([]ProfileView, error) {
 	if err != nil {
 		return nil, err
 	}
-	consoles, err := e.consoles(ovs)
+	consoles, err := e.store.NintendoDevices()
 	if err != nil {
 		return nil, err
 	}
@@ -175,6 +170,10 @@ func (e *Engine) Evaluate() ([]ProfileView, error) {
 	week := rules.StartOfWeek(now).Format(layout)
 	views := make([]ProfileView, 0, len(profiles))
 	for _, p := range profiles {
+		plan, until, err := e.store.ActivePlan(p, ovs)
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			return nil, err
+		}
 		po, list := profileOverrides(p.ID, ovs)
 		usedToday, err := e.store.NintendoMinutes(p.ID, today, today)
 		if err != nil {
@@ -184,12 +183,12 @@ func (e *Engine) Evaluate() ([]ProfileView, error) {
 		if err != nil {
 			return nil, err
 		}
-		v := ProfileView{Profile: p, Overrides: list}
-		v.Status = rules.Evaluate(p.Rules.Limits(), rules.Usage{
+		v := ProfileView{Profile: p, Plan: plan, PlanUntil: until, Overrides: list}
+		v.Status = planStatus(plan, until, rules.Evaluate(plan.Limits(now), rules.Usage{
 			Today: time.Duration(usedToday) * time.Minute, Week: time.Duration(usedWeek) * time.Minute,
-		}, po, now)
+		}, po, now), now)
 		for _, c := range consoles {
-			if c.ProfileID == p.ID || c.HeldBy == p.ID {
+			if c.ProfileID == p.ID {
 				v.Consoles = append(v.Consoles, c)
 			}
 		}
@@ -203,32 +202,25 @@ func (e *Engine) Evaluate() ([]ProfileView, error) {
 	return views, nil
 }
 
-// Consoles returns all consoles with the kid that has each one right now.
-func (e *Engine) Consoles() ([]Console, error) {
-	ovs, err := e.store.ActiveOverrides(e.Now(), e.opts.Location)
-	if err != nil {
-		return nil, err
+// planStatus adjusts the status for the plans Frei and Gesperrt.
+func planStatus(plan store.Plan, until time.Time, st rules.Status, now time.Time) rules.Status {
+	bis := ""
+	if !until.IsZero() {
+		bis = " bis " + rules.FormatUntil(until, now) + " Uhr"
 	}
-	return e.consoles(ovs)
+	switch plan.ID {
+	case store.PlanFree:
+		st.Allowed, st.Free, st.Remaining = true, true, rules.Unlimited
+		st.Reason = "Frei" + bis
+	case store.PlanLocked:
+		st.Allowed, st.Remaining = false, 0
+		st.Reason = "Gesperrt" + bis
+	}
+	return st
 }
 
-func (e *Engine) consoles(ovs []store.Override) ([]Console, error) {
-	devices, err := e.store.NintendoDevices()
-	if err != nil {
-		return nil, err
-	}
-	out := make([]Console, 0, len(devices))
-	for _, d := range devices {
-		c := Console{NintendoDevice: d, HeldBy: d.ProfileID}
-		for _, o := range ovs {
-			if o.Kind == store.KindRelease && o.DeviceID == d.DeviceID {
-				c.HeldBy, c.LentUntil = o.ProfileID, o.Until
-			}
-		}
-		out = append(out, c)
-	}
-	return out, nil
-}
+// Consoles returns all consoles.
+func (e *Engine) Consoles() ([]store.NintendoDevice, error) { return e.store.NintendoDevices() }
 
 // profileOverrides folds the active overrides of a profile into rule input.
 func profileOverrides(profileID string, ovs []store.Override) (rules.Overrides, []store.Override) {
@@ -239,13 +231,8 @@ func profileOverrides(profileID string, ovs []store.Override) (rules.Overrides, 
 			continue
 		}
 		list = append(list, o)
-		switch o.Kind {
-		case store.KindBonus:
+		if o.Kind == store.KindBonus {
 			out.BonusMinutes += o.Minutes
-		case store.KindFree:
-			if o.Until.After(out.AllowUntil) {
-				out.AllowUntil = o.Until
-			}
 		}
 	}
 	return out, list

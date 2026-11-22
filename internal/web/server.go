@@ -40,7 +40,7 @@ type Engine interface {
 	Tick(ctx context.Context) error
 	Snapshot() engine.Snapshot
 	Evaluate() ([]engine.ProfileView, error)
-	Consoles() ([]engine.Console, error)
+	Consoles() ([]store.NintendoDevice, error)
 	Now() time.Time
 	Location() *time.Location
 }
@@ -51,6 +51,10 @@ type Nintendo interface {
 	Connect(ctx context.Context, label, redirect, verifier string) (int64, error)
 	Remove(id int64) error
 	SyncAll(ctx context.Context)
+	// Apply writes changed plans to the consoles.
+	Apply(ctx context.Context, verify bool)
+	// AddExtraTime grants extra play time today on a kid's consoles.
+	AddExtraTime(ctx context.Context, profileID string, minutes int) error
 }
 
 // Notify manages the Telegram bot and its recipients. Optional.
@@ -109,7 +113,7 @@ func New(st *store.Store, eng Engine, opts Options, log *slog.Logger) (*Server, 
 			return nil, err
 		}
 	}
-	for _, page := range []string{"dashboard", "verlauf", "regeln", "konsolen", "protokoll", "einstellungen", "nintendo", "spiele", "login", "kind"} {
+	for _, page := range []string{"dashboard", "verlauf", "kinder", "plaene", "konsolen", "protokoll", "einstellungen", "nintendo", "spiele", "login", "kind"} {
 		t, err := template.New(page).Funcs(funcs(eng.Location())).ParseFS(templateFS, "templates/layout.html", "templates/"+page+".html")
 		if err != nil {
 			return nil, fmt.Errorf("template %s: %w", page, err)
@@ -147,9 +151,13 @@ func (s *Server) routes() {
 
 	m.Handle("GET /{$}", s.auth(s.dashboard))
 	m.Handle("GET /verlauf", s.auth(s.history))
-	m.Handle("GET /regeln", s.auth(s.rulesPage))
-	m.Handle("POST /regeln", s.auth(s.saveProfile))
-	m.Handle("POST /regeln/{id}/loeschen", s.auth(s.deleteProfile))
+	m.Handle("GET /regeln", http.RedirectHandler(plansPath, http.StatusMovedPermanently))
+	m.Handle("GET /plaene", s.auth(s.plansPage))
+	m.Handle("POST /plaene/plan", s.auth(s.savePlan))
+	m.Handle("POST /plaene/plan/{id}/loeschen", s.auth(s.deletePlan))
+	m.Handle("GET /kinder", s.auth(s.kidsPage))
+	m.Handle("POST /kinder", s.auth(s.saveKid))
+	m.Handle("POST /kinder/{id}/loeschen", s.auth(s.deleteKid))
 	m.Handle("GET /konsolen", s.auth(s.consolesPage))
 	m.Handle("POST /konsolen/{id}", s.auth(s.saveConsole))
 	m.Handle("GET /protokoll", s.auth(s.eventsPage))
@@ -385,6 +393,13 @@ func funcs(loc *time.Location) template.FuncMap {
 			return kind
 		},
 		"minutes": func(m int) time.Duration { return time.Duration(m) * time.Minute },
+		"dict": func(kv ...any) map[string]any {
+			m := make(map[string]any, len(kv)/2)
+			for i := 0; i+1 < len(kv); i += 2 {
+				m[fmt.Sprint(kv[i])] = kv[i+1]
+			}
+			return m
+		},
 		"initial": func(name string) string {
 			for _, r := range name {
 				return strings.ToUpper(string(r))

@@ -6,11 +6,13 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 )
@@ -22,6 +24,12 @@ type fakeNintendo struct {
 	tokenCalls atomic.Int32
 	badSession bool
 	base       string
+
+	mu     sync.Mutex
+	timer  map[string]any // play timer of DEV1
+	extra  bool           // extra play time runs on DEV1
+	writes int
+	calls  []string // extra play time requests
 }
 
 func (f *fakeNintendo) handler() http.Handler {
@@ -87,8 +95,59 @@ func (f *fakeNintendo) handler() http.Handler {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		_, _ = io.WriteString(w, `{"parentalControlSetting":{"whitelistedApplicationList":[
-			{"applicationId":"0100b","title":"Bauen","imageUri":"https://img/bauen"},{"applicationId":"0100C","title":"Bild","imageUri":{"extraLarge":"https://img/c","other":7}},{"applicationId":"0100D","title":"ohne","imageUri":[1]},{"applicationId":"","title":"kaputt"}]}}`)
+		f.mu.Lock()
+		timer, _ := json.Marshal(f.timer)
+		extra := "null"
+		if f.extra {
+			extra = `{"inOneDay":{"duration":15}}`
+		}
+		f.mu.Unlock()
+		_, _ = io.WriteString(w, `{"parentalControlSetting":{"playTimerRegulations":`+string(timer)+`,"whitelistedApplicationList":[
+			{"applicationId":"0100b","title":"Bauen","imageUri":"https://img/bauen"},{"applicationId":"0100C","title":"Bild","imageUri":{"extraLarge":"https://img/c","other":7}},{"applicationId":"0100D","title":"ohne","imageUri":[1]},{"applicationId":"","title":"kaputt"}]},
+			"ownedDevice":{"device":{"extraPlayingTime":`+extra+`}}}`)
+	}))
+	mux.HandleFunc("POST /v3/actions/parentalControlSetting/updatePlayTimer", moonAuth(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			DeviceID string         `json:"deviceId"`
+			Timer    map[string]any `json:"playTimerRegulations"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body.DeviceID != "DEV1" || body.Timer["dailyRegulations"] == nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		f.mu.Lock()
+		f.timer, f.writes = body.Timer, f.writes+1
+		f.mu.Unlock()
+		_, _ = io.WriteString(w, `{}`)
+	}))
+	mux.HandleFunc("POST /v2/actions/device/updateExtraPlayingTime", moonAuth(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		f.calls = append(f.calls, fmt.Sprint(body["status"], " ", body["additionalTime"]))
+		switch {
+		case body["status"] == "TO_CANCELED":
+			f.extra = false
+			_, _ = io.WriteString(w, `{"status":"SUCCESS"}`)
+		case body["additionalTime"] == float64(99):
+			_, _ = io.WriteString(w, `{"status":"OVERTIME_ERROR"}`)
+		case body["additionalTime"] == float64(30):
+			_, _ = io.WriteString(w, `{"status":"SUCCESS","nextStepDetail":{"bedtime":true}}`)
+		default:
+			f.extra = true
+			_, _ = io.WriteString(w, `{"status":"SUCCESS"}`)
+		}
+	}))
+	mux.HandleFunc("POST /v2/actions/device/confirmExtraPlayingTime", moonAuth(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		f.mu.Lock()
+		f.calls = append(f.calls, fmt.Sprint("CONFIRM ", body["withBedtime"]))
+		f.extra = true
+		f.mu.Unlock()
+		_, _ = io.WriteString(w, `{"status":"SUCCESS"}`)
 	}))
 	mux.HandleFunc("GET /img/", func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -110,7 +169,10 @@ var pngPixel = []byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x
 
 func newFake(t *testing.T) (*fakeNintendo, *Client) {
 	t.Helper()
-	f := &fakeNintendo{t: t}
+	f := &fakeNintendo{t: t, timer: map[string]any{
+		"timerMode": "DAILY", "restrictionMode": "ALARM",
+		"dailyRegulations": map[string]any{"timeToPlayInOneDay": map[string]any{"enabled": true, "limitTime": 60}},
+	}}
 	srv := httptest.NewServer(f.handler())
 	t.Cleanup(srv.Close)
 	c := New("Europe/Berlin")

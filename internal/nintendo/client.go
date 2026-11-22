@@ -417,15 +417,31 @@ func deref(p *int) int {
 }
 
 func (a *Account) moon(ctx context.Context, path string, out any) error {
+	return a.moonDo(ctx, http.MethodGet, path, nil, out)
+}
+
+// moonDo calls the parental controls API; body is sent as JSON if not nil.
+func (a *Account) moonDo(ctx context.Context, method, path string, body, out any) error {
 	id, _, err := a.token(ctx)
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.c.MoonURL+path, nil)
+	var rd io.Reader
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			return err
+		}
+		rd = bytes.NewReader(b)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, a.c.MoonURL+path, rd)
 	if err != nil {
 		return err
 	}
 	h := req.Header
+	if body != nil {
+		h.Set("Content-Type", "application/json")
+	}
 	h.Set("User-Agent", fmt.Sprintf("moon_%s/%s (%s; build:%s; %s %s)", osName, appVersion, appID, appBuild, osName, osVersion))
 	h.Set("X-Moon-App-Id", appID)
 	h.Set("X-Moon-Os", osName)

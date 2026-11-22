@@ -136,15 +136,12 @@ func TestAttribute(t *testing.T) {
 		t.Fatalf("max=%d mia=%d", minutes("max", today), minutes("mia", today))
 	}
 
-	// The console is with Mia now: new minutes of today count for her,
-	// late minutes of yesterday for the owner.
-	_, err = st.AddOverride(store.Override{Kind: store.KindRelease, ProfileID: "mia", DeviceID: "OWNED", StartsAt: now, Until: now.Add(time.Hour), Minutes: 60})
-	check(err)
+	// More play time today and late minutes of yesterday count for the owner.
 	check(st.UpsertNintendoUsage(store.NintendoUsage{Date: today, DeviceID: "OWNED", PlayerID: "P-MIA", Minutes: 50}))
 	check(st.UpsertNintendoUsage(store.NintendoUsage{Date: yesterday, DeviceID: "OWNED", PlayerID: "P-MIA", Minutes: 30}))
 	check(Attribute(st, now.Add(10*time.Minute), berlin))
-	if minutes("max", today) != 20 || minutes("mia", today) != 30 || minutes("max", yesterday) != 30 {
-		t.Fatalf("after borrowing: max=%d mia=%d max yesterday=%d", minutes("max", today), minutes("mia", today), minutes("max", yesterday))
+	if minutes("max", today) != 50 || minutes("mia", today) != 0 || minutes("max", yesterday) != 30 {
+		t.Fatalf("later: max=%d mia=%d max yesterday=%d", minutes("max", today), minutes("mia", today), minutes("max", yesterday))
 	}
 
 	// Nintendo corrects a day downwards.
@@ -162,7 +159,7 @@ func TestAttribute(t *testing.T) {
 	check(st.SetNintendoDevice("LOOSE", "", "mia"))
 	check(st.ResetNintendoPlay("LOOSE"))
 	check(Attribute(st, now.Add(30*time.Minute), berlin))
-	if minutes("mia", today) != 35 {
+	if minutes("mia", today) != 5 {
 		t.Fatalf("after owner change: mia=%d", minutes("mia", today))
 	}
 }

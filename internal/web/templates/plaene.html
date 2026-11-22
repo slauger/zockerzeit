@@ -1,0 +1,48 @@
+{{define "content"}}
+{{$d := .Data}}
+<div class="page-head">
+  <h1>Pläne</h1>
+</div>
+<p class="lead">Ein Plan legt pro Wochentag fest, von wann bis wann gespielt werden darf und wie lange. Jedes Kind hat unter <a href="/kinder">Kinder</a> einen Standardplan, auf der Übersicht schaltest du es vorübergehend auf einen anderen um, auf Frei oder Gesperrt. Zockerzeit überträgt den Plan, der gerade gilt, auf die Switches des Kindes. Nintendo erlaubt den Beginn zwischen 05:00 und 09:00 und das Ende zwischen 16:00 und 23:00 oder um 24:00, höchstens 360 Minuten am Tag.</p>
+
+
+{{range $i, $p := $d.Plans}}
+<form method="post" action="/plaene/plan" class="profile-rules{{if $p.New}} is-new{{end}}" id="plan-{{$p.ID}}" style="--player: var(--series-{{if eq $i 0}}1{{else if eq $i 1}}2{{else}}3{{end}})">
+  <input type="hidden" name="id" value="{{$p.ID}}">
+  <header class="profile-rules-head">
+    {{if $p.New}}<h2>Neuer Plan</h2>{{end}}
+    <label class="name-field">Name <input name="name" value="{{$p.Name}}" placeholder="z. B. Ferien" required></label>
+    {{if $p.Kids}}<p class="muted">Standardplan für {{range $j, $k := $p.Kids}}{{if $j}} und {{end}}{{$k}}{{end}}</p>{{end}}
+  </header>
+
+  <fieldset class="ruleset plan-days">
+    <legend class="visually-hidden">Tage</legend>
+    <div class="plan-row plan-head" aria-hidden="true">
+      <span></span><span>von</span><span>bis</span><span>Minuten</span>
+      <div class="axis-labels"><span>0</span><span>6</span><span>12</span><span>18</span><span>24 Uhr</span></div>
+    </div>
+    {{range $p.Days}}
+    {{$k := printf "%d" .Day}}
+    <div class="plan-row" data-day="{{$k}}">
+      <span class="day">{{weekday .Day}}</span>
+      <input class="from" name="from_{{$k}}" value="{{.From}}" placeholder="ganzer" aria-label="{{weekday .Day}} von" inputmode="numeric" autocomplete="off">
+      <input class="to" name="to_{{$k}}" value="{{.To}}" placeholder="Tag" aria-label="{{weekday .Day}} bis" inputmode="numeric" autocomplete="off">
+      <input class="limit" type="number" name="limit_{{$k}}" value="{{.Limit}}" min="0" max="360" step="5" placeholder="kein Limit" aria-label="{{weekday .Day}} Minuten">
+      <div class="track" aria-hidden="true">{{range .Slot}}<span class="slot" style="left: {{.Left}}%; width: {{.Width}}%" title="{{.Label}}"></span>{{end}}</div>
+    </div>
+    {{end}}
+    <p class="muted small">Leeres Limit: kein Limit. 0: an dem Tag keine Spielzeit. Ohne von und bis: der ganze Tag.</p>
+    <button type="button" class="link copy-weekdays">Montag auf Dienstag bis Freitag übertragen</button>
+  </fieldset>
+
+  <footer class="profile-rules-foot">
+    <button class="primary">{{if $p.New}}Plan anlegen{{else}}Speichern{{end}}</button>
+    {{if and (not $p.New) (not $p.Kids)}}
+    <button class="link danger-text" formaction="/plaene/plan/{{$p.ID}}/loeschen" formnovalidate onclick="return confirm('Plan {{$p.Name}} löschen?')">Plan löschen</button>
+    {{end}}
+  </footer>
+</form>
+{{end}}
+{{end}}
+
+{{define "scripts"}}<script src="/static/plaene.js"></script>{{end}}

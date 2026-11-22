@@ -49,12 +49,17 @@ func newHarness(t *testing.T) *harness {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	sched := rules.Schedule{}
-	for _, d := range rules.Weekdays {
-		sched[d] = []rules.Window{{Start: 15 * 60, End: 18 * 60}}
+	plan := func(id string, limit int) store.Plan {
+		p := store.Plan{ID: id, Name: id, Days: map[time.Weekday]store.PlanDay{}}
+		for _, d := range rules.Weekdays {
+			p.Days[d] = store.PlanDay{From: 15 * 60, To: 18 * 60, Limit: limit}
+		}
+		return p
 	}
-	must(t, st.SaveProfile(store.Profile{ID: "max", Name: "Max", Rules: store.RuleSet{DailyMinutes: 30, Schedule: sched}}))
-	must(t, st.SaveProfile(store.Profile{ID: "mia", Name: "Mia", Rules: store.RuleSet{Schedule: sched}}))
+	must(t, st.SavePlan(plan("plan-max", 30)))
+	must(t, st.SavePlan(plan("plan-mia", -1)))
+	must(t, st.SaveProfile(store.Profile{ID: "max", Name: "Max", PlanID: "plan-max"}))
+	must(t, st.SaveProfile(store.Profile{ID: "mia", Name: "Mia", PlanID: "plan-mia"}))
 	must(t, st.UpsertNintendoDevice(store.NintendoDevice{DeviceID: "D1", Label: "Switch Max", ProfileID: "max"}))
 	must(t, st.UpsertNintendoDevice(store.NintendoDevice{DeviceID: "D2", Label: "Switch Mia", ProfileID: "mia"}))
 	h := &harness{t: t, store: st, notify: &fakeNotifier{}, clock: time.Date(2026, 11, 18, 16, 0, 0, 0, berlin)}
@@ -96,7 +101,7 @@ func TestEvaluateCountsNintendoTime(t *testing.T) {
 	if v.Playing {
 		t.Fatal("old play time is not playing")
 	}
-	if len(v.Consoles) != 1 || v.Consoles[0].DeviceID != "D1" || v.Consoles[0].HeldBy != "max" {
+	if len(v.Consoles) != 1 || v.Consoles[0].DeviceID != "D1" || v.Plan.ID != "plan-max" || !v.PlanUntil.IsZero() {
 		t.Fatalf("consoles = %+v", v.Consoles)
 	}
 	if m := h.view("mia"); !m.Playing || m.Status.Remaining != 2*time.Hour {
@@ -110,7 +115,7 @@ func TestEvaluateCountsNintendoTime(t *testing.T) {
 	}
 }
 
-func TestBonusAndLending(t *testing.T) {
+func TestBonusAndPlans(t *testing.T) {
 	h := newHarness(t)
 	h.play("max", "D1", 30, time.Hour)
 	if v := h.view("max"); v.Status.Allowed || v.Status.Reason != "Tageslimit erreicht" {
@@ -118,23 +123,29 @@ func TestBonusAndLending(t *testing.T) {
 	}
 	_, err := h.store.AddOverride(store.Override{Kind: store.KindBonus, ProfileID: "max", Minutes: 15, StartsAt: h.clock, Until: h.clock.Add(8 * time.Hour)})
 	must(t, err)
-	until := h.clock.Add(time.Hour)
-	_, err = h.store.AddOverride(store.Override{Kind: store.KindRelease, ProfileID: "max", DeviceID: "D2", StartsAt: h.clock, Until: until})
-	must(t, err)
-	v := h.view("max")
-	if !v.Status.Allowed || v.Status.Remaining != 15*time.Minute || len(v.Overrides) != 2 {
+	if v := h.view("max"); !v.Status.Allowed || v.Status.Remaining != 15*time.Minute || len(v.Overrides) != 1 {
 		t.Fatalf("bonus not applied: %+v", v)
 	}
-	if len(v.Consoles) != 2 || v.Consoles[1].DeviceID != "D2" || v.Consoles[1].HeldBy != "max" || !v.Consoles[1].LentUntil.Equal(until) {
-		t.Fatalf("lent console missing: %+v", v.Consoles)
+
+	// Switched to Gesperrt: paused, whatever the plan says.
+	until := h.clock.Add(17 * time.Hour)
+	_, err = h.store.AddOverride(store.Override{Kind: store.KindPlan, PlanID: store.PlanLocked, ProfileID: "mia", StartsAt: h.clock, Until: until, CreatedAt: h.clock})
+	must(t, err)
+	m := h.view("mia")
+	if m.Status.Allowed || m.Plan.ID != store.PlanLocked || !m.PlanUntil.Equal(until) || m.Status.Reason != "Gesperrt bis Do 09:00 Uhr" {
+		t.Fatalf("locked = %+v", m.Status)
+	}
+	// A newer switch to Frei wins: no window, no limit.
+	_, err = h.store.AddOverride(store.Override{Kind: store.KindPlan, PlanID: store.PlanFree, ProfileID: "mia", StartsAt: h.clock, Until: until, CreatedAt: h.clock.Add(time.Second)})
+	must(t, err)
+	h.clock = time.Date(2026, 11, 18, 22, 0, 0, 0, berlin)
+	if m := h.view("mia"); !m.Status.Allowed || !m.Status.Free || m.Status.Remaining != rules.Unlimited || m.Plan.ID != store.PlanFree {
+		t.Fatalf("free = %+v", m.Status)
 	}
 	consoles, err := h.eng.Consoles()
 	must(t, err)
-	if len(consoles) != 2 || consoles[1].ProfileID != "mia" || consoles[1].HeldBy != "max" {
+	if len(consoles) != 2 {
 		t.Fatalf("consoles = %+v", consoles)
-	}
-	if m := h.view("mia"); len(m.Consoles) != 1 || m.Consoles[0].HeldBy != "max" {
-		t.Fatalf("owner still sees its console: %+v", m.Consoles)
 	}
 }
 

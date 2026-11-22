@@ -5,43 +5,30 @@ package store
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
-
-	"github.com/slauger/zockerzeit/internal/rules"
 
 	_ "modernc.org/sqlite" // pure Go SQLite driver
 )
 
 // Override kinds.
 const (
-	KindBonus   = "bonus"   // extra minutes for the day of StartsAt
-	KindRelease = "release" // console lent to another kid until Until
-	KindFree    = "free"    // no windows and limits until Until, e.g. on holiday
+	KindBonus = "bonus" // extra minutes for the day of StartsAt
+	KindPlan  = "plan"  // another plan (PlanID) until Until
 )
 
 // ErrNotFound is returned when a record does not exist.
 var ErrNotFound = errors.New("not found")
 
-// RuleSet holds the time windows and budget of a kid.
-type RuleSet struct {
-	DailyMinutes int            `json:"dailyMinutes"`
-	Schedule     rules.Schedule `json:"schedule"`
-}
-
-// Limits converts the rule set into rule engine input.
-func (r RuleSet) Limits() rules.Limits {
-	return rules.Limits{DailyMinutes: r.DailyMinutes, Schedule: r.Schedule}
-}
-
-// Profile is a kid whose play time is tracked.
+// Profile is a kid whose play time is tracked. Its consoles follow the
+// kid's plan.
 type Profile struct {
-	ID    string  `json:"id"`
-	Name  string  `json:"name"`
-	Rules RuleSet `json:"rules"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// PlanID is the standard plan of the kid.
+	PlanID string `json:"planId"`
 }
 
 // Override is a manual parent decision.
@@ -49,7 +36,8 @@ type Override struct {
 	ID        int64     `json:"id"`
 	Kind      string    `json:"kind"`
 	ProfileID string    `json:"profileId"`
-	DeviceID  string    `json:"deviceId"` // Nintendo console of a release
+	DeviceID  string    `json:"deviceId"`
+	PlanID    string    `json:"planId"` // plan of a KindPlan override
 	Minutes   int       `json:"minutes"`
 	StartsAt  time.Time `json:"startsAt"`
 	Until     time.Time `json:"until"`
@@ -244,6 +232,32 @@ var migrations = []string{
 	);`,
 	// Nintendo has no weekly limit, so neither has Zockerzeit.
 	`ALTER TABLE profiles DROP COLUMN weekly_minutes;`,
+	// Plans: the rules of each kid become a plan of its own, which is the
+	// kid's standard plan. A day without a time window had no play time.
+	// Free time becomes a switch to the plan Frei, lending is gone. Consoles
+	// remember what was last written to them.
+	`CREATE TABLE plans (
+		id TEXT PRIMARY KEY,
+		name TEXT NOT NULL,
+		days TEXT NOT NULL DEFAULT '{}'
+	);
+	INSERT INTO plans (id, name, days)
+		SELECT p.id, p.name, COALESCE((SELECT json_group_object(s.key, json_object(
+				'from', COALESCE(json_extract(s.value, '$[0].start'), 0),
+				'to', COALESCE(json_extract(s.value, '$[0].end'), 0),
+				'limit', CASE WHEN json_array_length(s.value) = 0 THEN 0 WHEN p.daily_minutes > 0 THEN p.daily_minutes ELSE -1 END))
+			FROM json_each(p.schedule) s), '{}')
+		FROM profiles p;
+	ALTER TABLE profiles ADD COLUMN plan_id TEXT NOT NULL DEFAULT '';
+	UPDATE profiles SET plan_id = id;
+	ALTER TABLE profiles DROP COLUMN daily_minutes;
+	ALTER TABLE profiles DROP COLUMN schedule;
+	ALTER TABLE overrides ADD COLUMN plan_id TEXT NOT NULL DEFAULT '';
+	UPDATE overrides SET kind = 'plan', plan_id = 'frei' WHERE kind = 'free';
+	DELETE FROM overrides WHERE kind = 'release';
+	ALTER TABLE nintendo_devices ADD COLUMN applied TEXT NOT NULL DEFAULT '';
+	ALTER TABLE nintendo_devices ADD COLUMN applied_at INTEGER NOT NULL DEFAULT 0;
+	ALTER TABLE nintendo_devices ADD COLUMN apply_error TEXT NOT NULL DEFAULT '';`,
 }
 
 // Open opens (and migrates) the database at path. Use ":memory:" for tests.
@@ -332,36 +346,20 @@ func (s *Store) Profile(id string) (Profile, error) {
 	return p, err
 }
 
-const profileColumns = `id, name, daily_minutes, schedule`
+const profileColumns = `id, name, plan_id`
 
 type scanner interface{ Scan(...any) error }
 
 func scanProfile(r scanner) (Profile, error) {
 	var p Profile
-	var sched string
-	if err := r.Scan(&p.ID, &p.Name, &p.Rules.DailyMinutes, &sched); err != nil {
-		return p, err
-	}
-	p.Rules.Schedule = rules.Schedule{}
-	if err := json.Unmarshal([]byte(sched), &p.Rules.Schedule); err != nil {
-		return p, fmt.Errorf("profile %s: schedule: %w", p.ID, err)
-	}
-	return p, nil
+	err := r.Scan(&p.ID, &p.Name, &p.PlanID)
+	return p, err
 }
 
 // SaveProfile inserts or updates a profile.
 func (s *Store) SaveProfile(p Profile) error {
-	sched := p.Rules.Schedule
-	if sched == nil {
-		sched = rules.Schedule{}
-	}
-	b, err := json.Marshal(sched)
-	if err != nil {
-		return err
-	}
-	_, err = s.db.Exec(`INSERT INTO profiles (`+profileColumns+`) VALUES (?, ?, ?, ?)
-		ON CONFLICT(id) DO UPDATE SET name = excluded.name, daily_minutes = excluded.daily_minutes, schedule = excluded.schedule`,
-		p.ID, p.Name, p.Rules.DailyMinutes, string(b))
+	_, err := s.db.Exec(`INSERT INTO profiles (`+profileColumns+`) VALUES (?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET name = excluded.name, plan_id = excluded.plan_id`, p.ID, p.Name, p.PlanID)
 	return err
 }
 
@@ -383,9 +381,9 @@ func (s *Store) AddOverride(o Override) (int64, error) {
 	if o.CreatedAt.IsZero() {
 		o.CreatedAt = time.Now()
 	}
-	res, err := s.db.Exec(`INSERT INTO overrides (kind, profile_id, device_id, minutes, starts_at, until, note, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		o.Kind, o.ProfileID, o.DeviceID, o.Minutes, o.StartsAt.Unix(), o.Until.Unix(), o.Note, o.CreatedAt.Unix())
+	res, err := s.db.Exec(`INSERT INTO overrides (kind, profile_id, device_id, plan_id, minutes, starts_at, until, note, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		o.Kind, o.ProfileID, o.DeviceID, o.PlanID, o.Minutes, o.StartsAt.Unix(), o.Until.Unix(), o.Note, o.CreatedAt.Unix())
 	if err != nil {
 		return 0, err
 	}
@@ -406,7 +404,7 @@ func (s *Store) EndOverride(id int64, now time.Time) error {
 
 // ActiveOverrides returns all overrides active at now.
 func (s *Store) ActiveOverrides(now time.Time, loc *time.Location) ([]Override, error) {
-	rows, err := s.db.Query(`SELECT id, kind, profile_id, device_id, minutes, starts_at, until, note, created_at
+	rows, err := s.db.Query(`SELECT id, kind, profile_id, device_id, plan_id, minutes, starts_at, until, note, created_at
 		FROM overrides WHERE starts_at <= ? AND until > ? ORDER BY created_at`, now.Unix(), now.Unix())
 	if err != nil {
 		return nil, err
@@ -416,7 +414,7 @@ func (s *Store) ActiveOverrides(now time.Time, loc *time.Location) ([]Override, 
 	for rows.Next() {
 		var o Override
 		var startsAt, until, created int64
-		if err := rows.Scan(&o.ID, &o.Kind, &o.ProfileID, &o.DeviceID, &o.Minutes, &startsAt, &until, &o.Note, &created); err != nil {
+		if err := rows.Scan(&o.ID, &o.Kind, &o.ProfileID, &o.DeviceID, &o.PlanID, &o.Minutes, &startsAt, &until, &o.Note, &created); err != nil {
 			return nil, err
 		}
 		o.StartsAt = time.Unix(startsAt, 0).In(loc)

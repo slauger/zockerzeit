@@ -3,7 +3,7 @@
 <div class="page-head">
   <h1>Konsolen</h1>
 </div>
-<p class="lead">Jede Switch gehört einem Kind. Was darauf gespielt wird, zählt für dieses Kind, egal mit welchem Benutzer. Leiht sich ein Geschwisterkind die Konsole, drückst du „Ist jetzt bei …“, dann zählt die Zeit bis dahin für das andere Kind.</p>
+<p class="lead">Jede Switch gehört einem Kind. Was darauf gespielt wird, zählt für dieses Kind, egal mit welchem Benutzer, und die Switch bekommt den Plan, der gerade für das Kind gilt.</p>
 
 {{if not .Consoles}}
 <section class="empty">
@@ -38,26 +38,12 @@
 
   <p class="console-today">{{if .Today}}Heute <strong>{{dur (minutes .Today)}}</strong>{{if .Games}}: {{range $i, $g := .Games}}{{if $i}}, {{end}}{{$g}}{{end}}{{end}}{{else}}<span class="muted">Heute noch nicht gespielt.</span>{{end}}</p>
 
-  {{with .Lend}}
-  <ul class="overrides">
-    <li><span>Gerade bei <strong>{{$c.HeldBy}}</strong> bis {{clock .Until}} Uhr</span>
-      <form method="post" action="/aktion/{{.ID}}/beenden"><input type="hidden" name="back" value="/konsolen#{{$c.DeviceID}}"><button class="link">Zurück an {{if $c.Owner}}{{$c.Owner}}{{else}}niemanden{{end}}</button></form>
-    </li>
-  </ul>
-  {{end}}
-
-  {{if and .ProfileID (not .Lend)}}
-  {{range $o := .Others}}
-  <div class="control-group">
-    <h3>Ist jetzt bei {{$o.Name}}</h3>
-    <div class="buttons">
-      {{range $m := (list 60 120)}}
-      <form method="post" action="/aktion"><input type="hidden" name="back" value="/konsolen#{{$c.DeviceID}}"><input type="hidden" name="action" value="release"><input type="hidden" name="device" value="{{$c.DeviceID}}"><input type="hidden" name="profile" value="{{$o.ID}}"><input type="hidden" name="minutes" value="{{$m}}"><button>{{if eq $m 60}}1 Std{{else}}2 Std{{end}}</button></form>
-      {{end}}
-      <form method="post" action="/aktion"><input type="hidden" name="back" value="/konsolen#{{$c.DeviceID}}"><input type="hidden" name="action" value="release"><input type="hidden" name="device" value="{{$c.DeviceID}}"><input type="hidden" name="profile" value="{{$o.ID}}"><input type="hidden" name="minutes" value="0"><button>Bis heute Abend</button></form>
-    </div>
-  </div>
-  {{end}}
+  {{if .ProfileID}}
+  <p class="console-sync {{if .ApplyError}}is-error{{else if .Synced}}is-ok{{end}}">
+    {{if .ApplyError}}Plan {{.Plan}} noch nicht auf der Switch: {{.ApplyError}}
+    {{else if .Synced}}Auf der Switch: Plan <strong>{{.Plan}}</strong>{{if not .AppliedAt.IsZero}}, übertragen {{datetime .AppliedAt}} Uhr{{end}}
+    {{else}}Plan <strong>{{.Plan}}</strong> wird übertragen, sobald Nintendo erreichbar ist.{{end}}
+  </p>
   {{end}}
 </section>
 {{end}}

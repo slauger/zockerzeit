@@ -1,0 +1,71 @@
+{{define "content"}}
+{{with .Data}}
+{{$plans := .Plans}}
+<div class="page-head">
+  <h1>Kinder</h1>
+</div>
+<p class="lead">Jedes Kind hat einen Standardplan und seine Switches. Was auf einer Switch gespielt wird, zählt für das Kind, dem sie gehört.</p>
+
+{{if not $plans}}<div class="banner warn">Lege zuerst unter <a href="/plaene">Pläne</a> einen Plan an, dann das Kind.</div>{{end}}
+
+<div class="kid-cards">
+{{range $i, $k := .Kids}}
+<section class="card kid-card" id="kind-{{.ID}}" style="--player: var(--series-{{if eq $i 0}}1{{else if eq $i 1}}2{{else}}3{{end}})">
+  <form method="post" action="/kinder" class="kid-card-form">
+    <input type="hidden" name="id" value="{{.ID}}">
+    <header class="player-head">
+      <span class="avatar" aria-hidden="true">{{initial .Name}}</span>
+      <label class="name-field">Name <input name="name" value="{{.Name}}" required></label>
+    </header>
+    <div class="inline-form">
+      <label>Standardplan
+        <select name="plan">{{range $plans}}<option value="{{.ID}}" {{if eq .ID $k.PlanID}}selected{{end}}>{{.Name}}</option>{{end}}</select>
+      </label>
+      <button class="primary">Speichern</button>
+    </div>
+  </form>
+
+  <p class="muted">{{if .Consoles}}Switches: {{range $j, $c := .Consoles}}{{if $j}}, {{end}}<a href="/konsolen#{{$c.DeviceID}}">{{$c.Name}}</a>{{end}}{{else}}Noch keine Switch, zuordnen unter <a href="/konsolen">Konsolen</a>.{{end}}</p>
+
+  <div class="games">
+    <h3>Spiele der letzten 30 Tage {{if .Games.Minutes}}<span class="muted">{{dur (minutes .Games.Minutes)}}</span>{{end}}</h3>
+    {{if .Games.Top}}
+    <ol class="game-top">
+      {{range .Games.Top}}
+      <li>
+        {{if .ImageURI}}<img src="{{.ImageURI}}" alt="" width="48" height="48" loading="lazy">{{else}}<span class="game-cover" aria-hidden="true">{{initial .Name}}</span>{{end}}
+        <div class="game-main">
+          <div class="game-line"><strong>{{.Name}}</strong><span>{{dur (minutes .Minutes)}}</span></div>
+          <div class="game-bar"><span style="width: {{.Percent}}%"></span></div>
+          <span class="muted small">zuletzt {{daysAgo .LastPlayed}}</span>
+        </div>
+      </li>
+      {{end}}
+    </ol>
+    {{else}}<p class="muted">In den letzten 30 Tagen nichts gespielt.</p>{{end}}
+  </div>
+
+  <div class="buttons">
+    <a class="button" href="/verlauf?profil={{.ID}}">Verlauf</a>
+    <a class="button" href="/kind/{{.ID}}">Kinderansicht</a>
+    <a class="button" href="/einstellungen#zugang">Kinder-App einrichten</a>
+  </div>
+  <form method="post" action="/kinder/{{.ID}}/loeschen" onsubmit="return confirm('{{.Name}} löschen? Die Switches gehören dann niemandem mehr.')"><button class="link danger-text">{{.Name}} löschen</button></form>
+</section>
+{{end}}
+
+{{if $plans}}
+<section class="card kid-card is-new">
+  <h2>Neues Kind</h2>
+  <form method="post" action="/kinder" class="inline-form">
+    <label>Name <input name="name" placeholder="z. B. Max" required></label>
+    <label>Standardplan
+      <select name="plan">{{range $plans}}<option value="{{.ID}}">{{.Name}}</option>{{end}}</select>
+    </label>
+    <button class="primary">Anlegen</button>
+  </form>
+</section>
+{{end}}
+</div>
+{{end}}
+{{end}}
