@@ -188,7 +188,8 @@ func TestAnnounceStart(t *testing.T) {
 	box, _ := secret.NewBox([]byte("k"), "nintendo")
 	s := NewSyncer(st, c, box, time.Minute, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	s.Location = berlin
-	clock := time.Date(2026, 11, 21, 15, 0, 0, 0, berlin)
+	// Nanoseconds as with the real clock; the database keeps whole seconds.
+	clock := time.Date(2026, 11, 21, 15, 0, 0, 123456789, berlin)
 	s.now = func() time.Time { return clock }
 	rec := &recordNotify{}
 	s.Notify = rec

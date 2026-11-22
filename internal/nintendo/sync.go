@@ -312,6 +312,9 @@ func (s *Syncer) announce(ctx context.Context, now time.Time) {
 	if s.Notify == nil || len(list) == 0 {
 		return
 	}
+	// Play time is stored with whole seconds; without this the rows of
+	// this sync would look older than now and count as a running session.
+	now = now.Truncate(time.Second)
 	today := now.In(s.Location).Format("2006-01-02")
 	plays, err := s.store.NintendoPlayBetween(today, today)
 	if err != nil {
