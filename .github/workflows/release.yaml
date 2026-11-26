@@ -27,7 +27,7 @@ jobs:
         run: |
           if ! git tag -l 'v*' | grep -q .; then
             FIRST_COMMIT=$(git rev-list --max-parents=0 HEAD)
-            gh api repos/${{ github.repository }}/git/refs \
+            gh api "repos/${GITHUB_REPOSITORY}/git/refs" \
               -f ref="refs/tags/v0.0.0" \
               -f sha="${FIRST_COMMIT}"
             git tag v0.0.0 "${FIRST_COMMIT}"
@@ -36,11 +36,11 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 26
 
       - name: Run semantic-release
         id: semantic
-        uses: cycjimmy/semantic-release-action@v6.0.0
+        uses: cycjimmy/semantic-release-action@v8.1.4
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -82,13 +82,16 @@ jobs:
         uses: sigstore/cosign-installer@v4.1.4
 
       - name: Login to ghcr.io
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          echo "${{ github.token }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
-          echo "${{ github.token }}" | cosign login ghcr.io -u ${{ github.actor }} --password-stdin
+          echo "${GH_TOKEN}" | helm registry login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          echo "${GH_TOKEN}" | cosign login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
 
       - name: Inject version into Chart.yaml
+        env:
+          VERSION: ${{ needs.semantic-release.outputs.new-release-version }}
         run: |
-          VERSION="${{ needs.semantic-release.outputs.new-release-version }}"
           sed -i "s/^version:.*/version: ${VERSION}/" charts/zockerzeit/Chart.yaml
           sed -i "s/^appVersion:.*/appVersion: \"${VERSION}\"/" charts/zockerzeit/Chart.yaml
 
@@ -97,7 +100,7 @@ jobs:
         run: |
           helm package charts/zockerzeit
           OUTPUT=$(helm push zockerzeit-*.tgz \
-            oci://ghcr.io/${{ github.repository_owner }}/charts 2>&1)
+            "oci://ghcr.io/${GITHUB_REPOSITORY_OWNER}/charts" 2>&1)
           echo "${OUTPUT}"
           DIGEST=$(echo "${OUTPUT}" | grep -oP 'sha256:[a-f0-9]+')
           if [ -z "${DIGEST}" ]; then
@@ -107,9 +110,11 @@ jobs:
           echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
 
       - name: Sign chart with cosign (keyless)
+        env:
+          DIGEST: ${{ steps.push-chart.outputs.digest }}
         run: |
           cosign sign --yes \
-            "ghcr.io/${{ github.repository_owner }}/charts/zockerzeit@${{ steps.push-chart.outputs.digest }}"
+            "ghcr.io/${GITHUB_REPOSITORY_OWNER}/charts/zockerzeit@${DIGEST}"
 
 
       - name: Upload chart artifact
@@ -134,6 +139,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.semantic-release.outputs.new-release-version }}
         run: |
-          VERSION="${{ needs.semantic-release.outputs.new-release-version }}"
           gh release upload "v${VERSION}" ./*.tgz

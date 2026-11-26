@@ -120,6 +120,15 @@ All options are documented in [config.example.yaml](config.example.yaml). Secret
 | `ZOCKERZEIT_SESSION_SECRET` | Signs session cookies and encrypts the Nintendo tokens and the Telegram bot token. Required for Nintendo and Telegram |
 | `ZOCKERZEIT_NTFY_TOKEN` | Access token for the ntfy topic from the config file (optional) |
 
+These variables override the matching options of the config file:
+
+| Variable | Option |
+|----------|--------|
+| `ZOCKERZEIT_LISTEN` | `listen` |
+| `ZOCKERZEIT_DATABASE` | `database` |
+| `ZOCKERZEIT_TIMEZONE` | `timezone` |
+| `ZOCKERZEIT_NTFY_URL` | `notify.ntfyURL` |
+
 ## Local Development
 
 ```bash
@@ -127,7 +136,7 @@ make demo      # UI with sample data
 make test      # unit tests with race detector
 make cover     # tests with 80% coverage gate
 make lint      # golangci-lint
-make ci        # everything CI runs
+make ci        # Go and Helm checks of the CI
 ```
 
 ## License
