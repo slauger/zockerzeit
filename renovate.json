@@ -6,22 +6,24 @@
   "labels": [
     "dependencies"
   ],
+  "minimumReleaseAge": "3 days",
   "postUpdateOptions": [
     "gomodTidy"
   ],
   "platformAutomerge": false,
   "customManagers": [
     {
+      "description": "Versions in workflows marked with a renovate comment (golangci-lint with: version, tool versions in env). Tags are kept as they are, so a v prefix stays.",
       "customType": "regex",
       "managerFilePatterns": [
-        "/(^|/).github/workflows/_go\\.yaml$/"
+        "/(^|/)\\.github/workflows/[^/]+\\.ya?ml$/"
       ],
       "matchStrings": [
-        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s+version: \"(?<currentValue>[^\"]+)\""
-      ],
-      "extractVersionTemplate": "^v?(?<version>.*)$"
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s+[A-Za-z0-9_-]+: \"(?<currentValue>[^\"]+)\""
+      ]
     },
     {
+      "description": "Versions in Containerfile ARGs marked with a renovate comment (Go toolchain)",
       "customType": "regex",
       "managerFilePatterns": [
         "/(^|/)images/.+/Containerfile$/"
@@ -34,12 +36,17 @@
   ],
   "packageRules": [
     {
-      "matchDepNames": [
-        "go",
-        "golang",
-        "docker.io/library/golang"
+      "description": "golangci-lint in the golangci-lint-action version input is handled by the CI tooling custom manager; skip the duplicate the github-actions manager finds",
+      "matchManagers": [
+        "github-actions"
       ],
-      "groupName": "Go version"
+      "matchDatasources": [
+        "github-releases"
+      ],
+      "matchDepNames": [
+        "golangci/golangci-lint"
+      ],
+      "enabled": false
     },
     {
       "matchManagers": [
@@ -90,6 +97,7 @@
         "dockerfile"
       ],
       "matchPackageNames": [
+        "!golang",
         "!docker.io/library/golang"
       ],
       "matchUpdateTypes": [
@@ -121,6 +129,16 @@
         "digest"
       ],
       "automerge": true
+    },
+    {
+      "description": "Keep the Go toolchain (go.mod, Containerfile ARG and builder image) in one PR and merge it manually. Last, so the manager groups above do not override it.",
+      "matchDepNames": [
+        "go",
+        "golang",
+        "docker.io/library/golang"
+      ],
+      "groupName": "Go version",
+      "automerge": false
     }
   ]
 }
